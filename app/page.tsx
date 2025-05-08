@@ -1,75 +1,75 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { ArrowRight, Clock, FileText, BrainCircuit, Youtube } from "lucide-react";
+"use client"
+
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { ArrowRight, Clock, BrainCircuit, FileText, Play } from "lucide-react"
+import { motion } from "framer-motion";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-white to-gray-100">
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-16 md:pt-20 lg:pt-28">
-        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div className="space-y-8 max-w-2xl">
-              <div className="space-y-4">
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-gray-900">
-                  Summarize YouTube Videos with AI
-                </h1>
-                <p className="text-xl text-gray-600">
-                  Save time by getting structured summaries of any YouTube video with timestamps and key points.
-                </p>
+      <section className="py-12 md:py-24 lg:py-32 xl:py-40">
+        <div className="container px-4 md:px-6">
+          <div className="grid gap-6 lg:grid-cols-[1fr_400px] lg:gap-12 xl:grid-cols-[1fr_600px]">
+            <motion.div 
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+              className="flex flex-col justify-center space-y-4"
+            >
+              <div className="space-y-2">
+                <motion.h1 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.8, delay: 0.2 }}
+                  className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none"
+                >
+                  Summarize YouTube Videos in Seconds
+                </motion.h1>
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.8, delay: 0.4 }}
+                  className="max-w-[600px] text-gray-500 md:text-xl"
+                >
+                  Get concise, accurate summaries of any YouTube video with our AI-powered tool. Save time and extract key insights instantly.
+                </motion.p>
               </div>
-              
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button asChild size="lg" className="text-md px-8">
-                  <Link href="/login">
-                    Get Started <ArrowRight className="ml-2 h-5 w-5" />
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.6 }}
+                className="flex flex-col gap-2 min-[400px]:flex-row"
+              >
+                <Button asChild size="lg">
+                  <Link href="/signup">
+                    Get Started <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
-                <Button asChild variant="outline" size="lg" className="text-md px-8">
-                  <Link href="/signup">Create Account</Link>
+                <Button variant="outline" size="lg" asChild>
+                  <Link href="/login">
+                    Login
+                  </Link>
                 </Button>
+              </motion.div>
+            </motion.div>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.3 }}
+              className="mx-auto aspect-video overflow-hidden rounded-xl border bg-gray-100 object-cover sm:w-full lg:order-last"
+            >
+              <div className="flex h-full items-center justify-center">
+                <motion.div 
+                  whileHover={{ scale: 1.05 }}
+                  className="flex flex-col items-center space-y-4 p-4 text-center"
+                >
+                  <Play className="h-12 w-12 text-gray-400" />
+                  <p className="text-lg font-medium text-gray-500">Video Summarizer Demo</p>
+                </motion.div>
               </div>
-              
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <span className="flex items-center">
-                  <Clock className="h-4 w-4 mr-1" /> Fast Summaries
-                </span>
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                <span className="flex items-center">
-                  <BrainCircuit className="h-4 w-4 mr-1" /> AI-Powered
-                </span>
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                <span className="flex items-center">
-                  <FileText className="h-4 w-4 mr-1" /> Structured Content
-                </span>
-              </div>
-            </div>
-            
-            <div className="relative lg:h-[500px] flex items-center justify-center rounded-xl overflow-hidden shadow-2xl">
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-purple-700 opacity-90"></div>
-              <div className="relative z-10 p-8 text-white text-center">
-                <Youtube className="h-20 w-20 mx-auto mb-6" />
-                <h3 className="text-2xl font-bold mb-4">How It Works</h3>
-                <ol className="text-left space-y-4">
-                  <li className="flex items-start">
-                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-white text-blue-600 font-bold text-sm mr-3 mt-0.5">1</span>
-                    <span>Paste any YouTube video URL</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-white text-blue-600 font-bold text-sm mr-3 mt-0.5">2</span>
-                    <span>Our AI analyzes the video transcript</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-white text-blue-600 font-bold text-sm mr-3 mt-0.5">3</span>
-                    <span>Get a structured summary with timestamps</span>
-                  </li>
-                  <li className="flex items-start">
-                    <span className="flex items-center justify-center h-6 w-6 rounded-full bg-white text-blue-600 font-bold text-sm mr-3 mt-0.5">4</span>
-                    <span>Navigate to specific parts of the video</span>
-                  </li>
-                </ol>
-              </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </section>
@@ -77,7 +77,13 @@ export default function Home() {
       {/* Features Section */}
       <section className="py-16 md:py-24">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="text-center mb-16"
+          >
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
               Smart Features for Video Content
             </h2>
@@ -85,10 +91,17 @@ export default function Home() {
               Our AI-powered summarizer breaks down videos into digestible sections with timestamps,
               making it easy to understand and navigate long content.
             </p>
-          </div>
+          </motion.div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+            >
               <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center mb-6">
                 <Clock className="h-6 w-6 text-blue-600" />
               </div>
@@ -96,9 +109,16 @@ export default function Home() {
               <p className="text-gray-600">
                 Navigate to specific parts of videos with accurate timestamps for each section of content.
               </p>
-            </div>
+            </motion.div>
             
-            <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+            >
               <div className="h-12 w-12 rounded-lg bg-purple-100 flex items-center justify-center mb-6">
                 <BrainCircuit className="h-6 w-6 text-purple-600" />
               </div>
@@ -106,9 +126,16 @@ export default function Home() {
               <p className="text-gray-600">
                 Advanced AI models understand context and extract the most important information from videos.
               </p>
-            </div>
+            </motion.div>
             
-            <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+            >
               <div className="h-12 w-12 rounded-lg bg-green-100 flex items-center justify-center mb-6">
                 <FileText className="h-6 w-6 text-green-600" />
               </div>
@@ -116,7 +143,7 @@ export default function Home() {
               <p className="text-gray-600">
                 Get organized summaries with clear sections, making it easy to understand complex topics.
               </p>
-            </div>
+            </motion.div>
           </div>
         </div>
       </section>
@@ -124,23 +151,36 @@ export default function Home() {
       {/* Pricing Section */}
       <section id="pricing" className="py-16 md:py-24 bg-gray-50">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="text-center mb-16"
+          >
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
               Simple, Transparent Pricing
             </h2>
             <p className="mt-4 text-lg text-gray-600 max-w-3xl mx-auto">
               Choose the plan that works best for you. All plans include full access to our features.
             </p>
-          </div>
+          </motion.div>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {/* Free Plan */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+            >
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">Free</h3>
                 <p className="text-sm text-gray-500 mb-4">Perfect for trying out the service</p>
                 <div className="flex items-baseline mb-4">
-                  <span className="text-4xl font-bold text-gray-900">$0</span>
+                  <span className="text-4xl font-bold text-gray-900">₹0</span>
                   <span className="text-gray-500 ml-1">/month</span>
                 </div>
                 <ul className="space-y-3 mb-6">
@@ -161,19 +201,32 @@ export default function Home() {
                   <Link href="/signup">Sign Up Free</Link>
                 </Button>
               </div>
-            </div>
+            </motion.div>
             
             {/* Pro Plan */}
-            <div className="bg-white rounded-lg shadow-lg border-2 border-blue-500 overflow-hidden relative">
-              <div className="absolute top-0 right-0 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white rounded-lg shadow-lg border-2 border-blue-500 overflow-hidden relative"
+            >
+              <motion.div 
+                initial={{ x: 100 }}
+                whileInView={{ x: 0 }}
+                transition={{ duration: 0.5, delay: 0.6 }}
+                className="absolute top-0 right-0 bg-blue-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg"
+              >
                 POPULAR
-              </div>
+              </motion.div>
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">Pro</h3>
                 <p className="text-sm text-gray-500 mb-4">For regular content creators</p>
                 <div className="flex items-baseline mb-4">
-                  <span className="text-4xl font-bold text-gray-900">$9.99</span>
+                  <span className="text-4xl font-bold text-gray-900">₹99</span>
                   <span className="text-gray-500 ml-1">/month</span>
+                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">Introductory Offer</span>
                 </div>
                 <ul className="space-y-3 mb-6">
                   <li className="flex items-start">
@@ -197,15 +250,22 @@ export default function Home() {
                   <Link href="/signup">Get Started</Link>
                 </Button>
               </div>
-            </div>
+            </motion.div>
             
             {/* Enterprise Plan */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <motion.div 
+              initial={{ opacity: 0, y: 50 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              viewport={{ once: true }}
+              whileHover={{ y: -10 }}
+              className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+            >
               <div className="p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">Enterprise</h3>
                 <p className="text-sm text-gray-500 mb-4">For teams and businesses</p>
                 <div className="flex items-baseline mb-4">
-                  <span className="text-4xl font-bold text-gray-900">$49.99</span>
+                  <span className="text-4xl font-bold text-gray-900">₹4,999</span>
                   <span className="text-gray-500 ml-1">/month</span>
                 </div>
                 <ul className="space-y-3 mb-6">
@@ -230,7 +290,7 @@ export default function Home() {
                   <Link href="/signup">Contact Sales</Link>
                 </Button>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </section>
@@ -238,22 +298,29 @@ export default function Home() {
       {/* CTA Section */}
       <section className="py-16 bg-gray-50 border-t border-gray-200">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900">
-            Ready to save time on video content?
-          </h2>
-          <p className="mt-4 text-lg text-gray-600 max-w-2xl mx-auto">
-            Create your free account today and start summarizing YouTube videos in seconds.
-          </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Button asChild size="lg" className="text-md px-8">
-              <Link href="/signup">
-                Sign Up Free <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
-            </Button>
-            <Button asChild variant="outline" size="lg" className="text-md px-8">
-              <Link href="/login">Log In</Link>
-            </Button>
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+          >
+            <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl mb-4">
+              Ready to save time on video content?
+            </h2>
+            <p className="text-lg text-gray-600 max-w-3xl mx-auto mb-8">
+              Join thousands of users who are already summarizing YouTube videos with our AI-powered tool.
+            </p>
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              transition={{ type: "spring", stiffness: 400, damping: 10 }}
+            >
+              <Button asChild size="lg">
+                <Link href="/signup">
+                  Get Started Today <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </motion.div>
+          </motion.div>
         </div>
       </section>
       
