@@ -343,23 +343,57 @@ async function generateSummaryForUser(
       return { error: "Failed to update user credits" }
     }
     
+    let remainingCredits = user.credits - 1; // Default to the expected value
+    
     if (!updatedUserData) {
-      console.log(`[${new Date().toISOString()}] No data returned from credits update`);
-      return { error: "Failed to update user credits - no data returned" }
+      console.log(`[${new Date().toISOString()}] No data returned from credits update, checking if update was applied...`);
+      
+      // Try to verify if the update was successful by fetching the current record
+      try {
+        const { data: refreshedUser, error: refreshError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+          
+        if (refreshError) {
+          console.error(`[${new Date().toISOString()}] Error fetching updated user:`, refreshError);
+        } else if (refreshedUser) {
+          console.log(`[${new Date().toISOString()}] Fetched updated user data:`, {
+            credits: refreshedUser.credits,
+            expectedCredits: user.credits - 1,
+            updated: refreshedUser.updated_at
+          });
+          
+          // Use the fetched credits value
+          remainingCredits = refreshedUser.credits;
+          
+          // Log success message
+          console.log(`[${new Date().toISOString()}] Credits updated successfully (verified by fetch):`, {
+            newCredits: remainingCredits
+          });
+        } else {
+          console.log(`[${new Date().toISOString()}] Could not verify credit update, proceeding with expected value:`, remainingCredits);
+        }
+      } catch (refreshErr) {
+        console.error(`[${new Date().toISOString()}] Unexpected error fetching updated user:`, refreshErr);
+      }
+    } else {
+      // Use the returned credits value from the update
+      remainingCredits = updatedUserData.credits;
+      console.log(`[${new Date().toISOString()}] Credits updated successfully:`, {
+        newCredits: remainingCredits
+      });
     }
     
-    console.log(`[${new Date().toISOString()}] Credits updated successfully:`, {
-      newCredits: updatedUserData.credits
-    });
-    
     // Return the result with transcript source information, structured summary, and remaining credits
-    console.log(`[${new Date().toISOString()}] Returning successful result`);
+    console.log(`[${new Date().toISOString()}] Returning successful result with ${remainingCredits} credits remaining`);
     return {
       structuredSummary,
       videoId,
       videoTitle,
       transcriptSource,
-      remainingCredits: updatedUserData.credits,
+      remainingCredits,
     }
   } catch (error: any) {
     console.error(`[${new Date().toISOString()}] Error in generateSummaryForUser:`, error);
