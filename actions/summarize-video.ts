@@ -30,7 +30,7 @@ export async function summarizeYouTubeVideo(formData: FormData): Promise<Summari
   }
   
   // Check if user has enough credits
-  const user = getUserByEmail(userEmail)
+  const user = await getUserByEmail(userEmail)
   if (!user) {
     return { error: "User not found" }
   }
@@ -64,7 +64,7 @@ export async function summarizeYouTubeVideo(formData: FormData): Promise<Summari
     }
 
     // Step 5: Deduct 1 credit from the user's account
-    const updatedUser = updateUserCredits(userEmail, user.credits - 1)
+    const updatedUser = await updateUserCredits(userEmail, user.credits - 1)
     if (!updatedUser) {
       return { error: "Failed to update user credits" }
     }

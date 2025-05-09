@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
 import { VideoSummarizerForm } from "@/components/video-summarizer-form";
 import { Button } from "@/components/ui/button";
-import { LogOut } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 
 export default function DashboardPage() {
   const { user, logout, isLoading } = useAuth();
@@ -18,6 +18,11 @@ export default function DashboardPage() {
       router.push("/login");
     }
   }, [user, isLoading, router]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
 
   if (isLoading) {
     return (
@@ -47,9 +52,12 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" asChild>
-                <Link href="/profile">Profile</Link>
+                <Link href="/profile">
+                  <User className="h-4 w-4 mr-2" />
+                  Profile
+                </Link>
               </Button>
-              <Button variant="outline" size="sm" onClick={logout}>
+              <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
               </Button>

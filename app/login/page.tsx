@@ -30,8 +30,8 @@ export default function LoginPage() {
       } else {
         setError("Invalid email or password");
       }
-    } catch (error) {
-      setError("An error occurred during login");
+    } catch (error: any) {
+      setError(error?.message || "An error occurred during login");
       console.error(error);
     } finally {
       setIsLoading(false);

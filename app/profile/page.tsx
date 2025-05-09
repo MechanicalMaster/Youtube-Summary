@@ -15,6 +15,7 @@ export default function ProfilePage() {
   const { user, updateUserProfile, isLoading } = useAuth();
   const [displayName, setDisplayName] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
   const router = useRouter();
 
   // Redirect if not authenticated
@@ -26,17 +27,20 @@ export default function ProfilePage() {
     }
   }, [user, isLoading, router]);
 
-  const handleUpdateProfile = (e: React.FormEvent) => {
+  const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsUpdating(true);
     
     try {
-      updateUserProfile({ displayName });
+      await updateUserProfile({ displayName });
       setMessage({ type: "success", text: "Profile updated successfully!" });
       
       // Clear message after 3 seconds
       setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage({ type: "error", text: "Failed to update profile" });
+    } catch (error: any) {
+      setMessage({ type: "error", text: error?.message || "Failed to update profile" });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -53,57 +57,56 @@ export default function ProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto">
-          <div className="mb-6">
-            <Link href="/dashboard" className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800">
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
+    <main className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center mb-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mr-4"
+            asChild
+          >
+            <Link href="/dashboard">
+              <ArrowLeft className="h-5 w-5" />
             </Link>
-          </div>
-          
-          <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
-          
-          <Tabs defaultValue="profile" className="w-full">
+          </Button>
+          <h1 className="text-2xl font-bold">Your Profile</h1>
+        </div>
+        
+        <div className="mb-8">
+          <Tabs defaultValue="account">
             <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="profile" className="flex items-center">
-                <User className="h-4 w-4 mr-2" /> Profile
+              <TabsTrigger value="account">
+                <User className="h-4 w-4 mr-2" />
+                Account
               </TabsTrigger>
-              <TabsTrigger value="credits" className="flex items-center">
-                <CreditCard className="h-4 w-4 mr-2" /> Credits
+              <TabsTrigger value="credits">
+                <CreditCard className="h-4 w-4 mr-2" />
+                Credits
               </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="profile" className="mt-6">
+            <TabsContent value="account" className="mt-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
+                  <CardTitle>Account Information</CardTitle>
                   <CardDescription>
-                    Update your profile information here.
+                    Update your account settings and profile information.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-6">
                   {message && (
-                    <Alert variant={message.type === "error" ? "destructive" : "default"} className="mb-4">
-                      <AlertCircle className="h-4 w-4" />
+                    <Alert variant={message.type === "success" ? "default" : "destructive"}>
                       <AlertDescription>{message.text}</AlertDescription>
                     </Alert>
                   )}
                   
+                  <div className="border rounded-lg p-4 bg-gray-50">
+                    <div className="mb-2 text-sm font-medium text-gray-500">Email</div>
+                    <div className="text-base font-medium">{user.email}</div>
+                  </div>
+                  
                   <form onSubmit={handleUpdateProfile} className="space-y-4">
-                    <div className="space-y-2">
-                      <label htmlFor="email" className="text-sm font-medium">
-                        Email
-                      </label>
-                      <Input
-                        id="email"
-                        value={user.email}
-                        disabled
-                        className="bg-gray-50"
-                      />
-                      <p className="text-xs text-gray-500">Your email cannot be changed</p>
-                    </div>
-                    
                     <div className="space-y-2">
                       <label htmlFor="displayName" className="text-sm font-medium">
                         Display Name
@@ -112,12 +115,12 @@ export default function ProfilePage() {
                         id="displayName"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="How you want to be known"
+                        placeholder="How you want to be addressed"
                       />
                     </div>
                     
-                    <Button type="submit">
-                      Update Profile
+                    <Button type="submit" disabled={isUpdating}>
+                      {isUpdating ? "Updating..." : "Update Profile"}
                     </Button>
                   </form>
                 </CardContent>

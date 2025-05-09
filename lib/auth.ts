@@ -1,5 +1,7 @@
 // Simple auth context for demonstration purposes
 
+import { supabase } from './supabase';
+
 export type User = {
   id: string;
   email: string;
@@ -30,72 +32,204 @@ export const DUMMY_USERS: UserWithPassword[] = [
   },
 ];
 
-export function authenticateUser(email: string, password: string): User | null {
-  const user = DUMMY_USERS.find(
-    (u) => u.email === email && u.password === password
-  );
-  
-  if (!user) return null;
-  
-  // Return user without password
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    displayName: user.displayName,
-    credits: user.credits,
-  };
-}
+/**
+ * Authenticates a user with their email and password
+ */
+export async function authenticateUser(email: string, password: string): Promise<User | null> {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-export function getUserByEmail(email: string): User | null {
-  return DUMMY_USERS.find((user) => user.email === email) || null;
-}
+    if (error) {
+      console.error('Authentication error:', error.message);
+      return null;
+    }
 
-export function updateUserCredits(email: string, newCredits: number): User | null {
-  const userIndex = DUMMY_USERS.findIndex((user) => user.email === email);
-  if (userIndex === -1) {
+    if (!data.user) {
+      return null;
+    }
+
+    // Get user profile data from the users table
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user data:', userError.message);
+      return null;
+    }
+
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      displayName: userData.display_name,
+      credits: userData.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error during authentication:', error);
     return null;
   }
-  
-  // Update user credits
-  DUMMY_USERS[userIndex] = {
-    ...DUMMY_USERS[userIndex],
-    credits: newCredits,
-  };
-  
-  return {
-    id: DUMMY_USERS[userIndex].id,
-    email: DUMMY_USERS[userIndex].email,
-    name: DUMMY_USERS[userIndex].name,
-    displayName: DUMMY_USERS[userIndex].displayName,
-    credits: DUMMY_USERS[userIndex].credits,
-  };
 }
 
-export function createUser(email: string, password: string, name?: string, displayName?: string): User | null {
-  // Check if user already exists
-  const existingUser = DUMMY_USERS.find((u) => u.email === email);
-  if (existingUser) return null;
-  
-  // In a real app, we would create a user in the database
-  // For this demo, we'll just add to our array (but this won't persist across page refreshes)
-  const newUser = {
-    id: String(DUMMY_USERS.length + 1),
-    email,
-    password,
-    name,
-    displayName: displayName || name, // Use name as displayName if not provided
-    credits: 10, // Give new users 10 credits by default
-  };
-  
-  DUMMY_USERS.push(newUser);
-  
-  // Return user without password
-  return {
-    id: newUser.id,
-    email: newUser.email,
-    name: newUser.name,
-    displayName: newUser.displayName,
-    credits: newUser.credits,
-  };
+/**
+ * Returns user information by email
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  try {
+    // First, get the user from auth
+    const { data: authUser, error: authError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (authError || !authUser) {
+      console.error('Error fetching user by email:', authError?.message);
+      return null;
+    }
+
+    return {
+      id: authUser.id,
+      email: authUser.email,
+      displayName: authUser.display_name,
+      credits: authUser.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error fetching user by email:', error);
+    return null;
+  }
+}
+
+/**
+ * Updates user credits
+ */
+export async function updateUserCredits(email: string, newCredits: number): Promise<User | null> {
+  try {
+    // First get the user to find their ID
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return null;
+    }
+
+    // Update the user's credits
+    const { data, error } = await supabase
+      .from('users')
+      .update({ credits: newCredits, updated_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating user credits:', error.message);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      email: data.email,
+      displayName: data.display_name,
+      credits: data.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error updating user credits:', error);
+    return null;
+  }
+}
+
+/**
+ * Creates a new user
+ */
+export async function createUser(
+  email: string, 
+  password: string, 
+  name?: string, 
+  displayName?: string
+): Promise<User | null> {
+  try {
+    // Create the user in Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          displayName: displayName || name,
+        },
+      },
+    });
+
+    if (error) {
+      console.error('Error creating user:', error.message);
+      return null;
+    }
+
+    if (!data.user) {
+      return null;
+    }
+
+    // Implementation of retry logic with exponential backoff
+    // This helps with race conditions between auth creation and trigger execution
+    let userData = null;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      
+      // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms, 8000ms
+      const delay = Math.min(500 * Math.pow(2, attempts - 1), 8000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Try to get the user data
+      const { data: fetchedUser, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .maybeSingle(); // Use maybeSingle instead of single to avoid the error
+
+      if (userError) {
+        console.log(`Attempt ${attempts} failed: ${userError.message}`);
+        if (attempts === maxAttempts) {
+          console.error('Max attempts reached. Error fetching new user data:', userError.message);
+          return null;
+        }
+        continue; // Try again
+      }
+
+      // If we got user data, break out of the loop
+      if (fetchedUser) {
+        userData = fetchedUser;
+        break;
+      }
+
+      // If no data but also no error, and we haven't reached max attempts, try again
+      console.log(`Attempt ${attempts}: User record not found yet. Retrying...`);
+    }
+
+    // If we couldn't get user data after all attempts
+    if (!userData) {
+      console.error('Could not fetch user data after multiple attempts');
+      
+      // As a fallback, create a minimal user object from auth data
+      return {
+        id: data.user.id,
+        email: data.user.email!,
+        displayName: displayName || name,
+        credits: 10, // Default credits
+      };
+    }
+
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      displayName: userData.display_name,
+      credits: userData.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error creating user:', error);
+    return null;
+  }
 }

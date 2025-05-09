@@ -29,7 +29,7 @@ export default function SignupPage() {
     const email = e.currentTarget.email.value;
     const password = e.currentTarget.password.value;
     const confirmPassword = e.currentTarget.confirmPassword.value;
-    const displayName = e.currentTarget.displayName.value;
+    const displayName = e.currentTarget.displayName.value || name;
 
     if (!email || !password || !confirmPassword) {
       setError("Please fill in all required fields");
@@ -44,14 +44,14 @@ export default function SignupPage() {
     }
 
     try {
-      const success = await signup(email, password, displayName);
-      if (success) {
+      const user = await signup(email, password, name, displayName);
+      if (user) {
         router.push("/dashboard");
       } else {
         setError("Failed to create account. Email may already be in use.");
       }
-    } catch (err) {
-      setError("An error occurred during signup.");
+    } catch (err: any) {
+      setError(err?.message || "An error occurred during signup.");
       console.error(err);
     } finally {
       setIsLoading(false);
