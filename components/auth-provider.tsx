@@ -31,14 +31,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: sessionData } = await supabase.auth.getSession();
         
         if (sessionData.session) {
+          console.log("Auth session found, fetching user data");
+          
           // User is logged in, get profile data
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
             .eq('id', sessionData.session.user.id)
-            .single();
+            .maybeSingle(); // Use maybeSingle instead of single
             
-          if (!userError && userData) {
+          if (userError) {
+            console.error('Error fetching user data during initialization:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found for authenticated user. This may occur if the user record hasn't been created yet.");
+          } else {
+            console.log("User data loaded successfully");
             setUser({
               id: sessionData.session.user.id,
               email: sessionData.session.user.email!,
@@ -46,6 +53,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               credits: userData.credits,
             });
           }
+        } else {
+          console.log("No active auth session found");
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
@@ -60,15 +69,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Subscribe to auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log(`Auth state changed: ${event}`);
+        
         if (event === 'SIGNED_IN' && session) {
+          console.log("User signed in, updating user data");
           // Get user profile data
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
             .eq('id', session.user.id)
-            .single();
+            .maybeSingle(); // Use maybeSingle instead of single
             
-          if (!userError && userData) {
+          if (userError) {
+            console.error('Error fetching user data on auth change:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found after sign in. User record may not exist yet.");
+          } else {
             setUser({
               id: session.user.id,
               email: session.user.email!,
@@ -77,26 +93,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
           }
         } else if (event === 'SIGNED_OUT') {
+          console.log("User signed out, clearing user data");
           setUser(null);
+        } else if (event === 'USER_UPDATED') {
+          console.log("User data updated");
         }
       }
     );
 
     // Cleanup subscription
     return () => {
+      console.log("Cleaning up auth listener");
       authListener.subscription.unsubscribe();
     };
   }, []);
 
+  // Log when user state changes
+  useEffect(() => {
+    console.log("User state updated:", user ? `User ${user.email}` : "No user");
+  }, [user]);
+
   const login = async (email: string, password: string) => {
+    console.log(`Attempting login for ${email}`);
     return authenticateUser(email, password);
   };
 
   const signup = async (email: string, password: string, name?: string, displayName?: string) => {
+    console.log(`Attempting signup for ${email}`);
     return createUser(email, password, name, displayName);
   };
 
   const logout = async () => {
+    console.log("Logging out user");
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error.message);
@@ -106,9 +134,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateUserProfile = async (updates: Partial<User>) => {
-    if (!user) return;
+    if (!user) {
+      console.error("Cannot update profile: No user is logged in");
+      return;
+    }
     
     try {
+      console.log(`Updating user profile for ${user.email}`, updates);
+      
       // Update display_name if it's being changed
       if (updates.displayName !== undefined) {
         const { error } = await supabase
@@ -130,6 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Update state
       setUser(updatedUser);
+      console.log("User profile updated successfully");
     } catch (error) {
       console.error('Unexpected error updating user profile:', error);
     }
@@ -137,6 +171,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Function to update the entire user object
   const updateUser = (updatedUser: User) => {
+    console.log("Updating user state with new data", { 
+      id: updatedUser.id,
+      email: updatedUser.email,
+      credits: updatedUser.credits
+    });
     setUser(updatedUser);
   };
 

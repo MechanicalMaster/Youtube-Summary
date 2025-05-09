@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useFormStatus } from "react-dom"
 import { summarizeYouTubeVideo } from "@/actions/summarize-video"
 import { Button } from "@/components/ui/button"
@@ -43,15 +43,37 @@ export function VideoSummarizerForm() {
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [currentStep, setCurrentStep] = useState<string | null>(null);
+  
+  // Log user data when it changes
+  useEffect(() => {
+    if (user) {
+      console.log("VideoSummarizerForm - Current user data:", {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        credits: user.credits
+      });
+    } else {
+      console.log("VideoSummarizerForm - No user data available");
+    }
+  }, [user]);
 
   async function handleSubmit(formData: FormData) {
     if (!user) {
+      console.log("VideoSummarizerForm - Submit attempted with no user");
       setResult({ error: "You must be logged in to summarize videos" })
       return
     }
     
-    // Add user email to the form data
+    // Add user data to the form data
     formData.append("userEmail", user.email)
+    formData.append("userId", user.id)
+    
+    console.log("VideoSummarizerForm - Submitting with user data:", {
+      id: user.id,
+      email: user.email,
+      credits: user.credits
+    });
     
     setResult({ status: "processing" });
     setCurrentStep("Validating YouTube URL");
@@ -62,18 +84,25 @@ export function VideoSummarizerForm() {
       setTimeout(() => setCurrentStep("Retrieving transcript"), 1500);
       setTimeout(() => setCurrentStep("Generating summary with AI"), 3000);
 
+      console.log("VideoSummarizerForm - Calling summarizeYouTubeVideo action");
       const response = await summarizeYouTubeVideo(formData);
+      console.log("VideoSummarizerForm - Action response:", response);
       setResult(response);
       
       // Update user credits if the response includes remainingCredits
       if (response.remainingCredits !== undefined && user) {
-        updateUser({ ...user, credits: response.remainingCredits })
+        console.log("VideoSummarizerForm - Updating user credits:", {
+          from: user.credits,
+          to: response.remainingCredits
+        });
+        updateUser({ ...user, credits: response.remainingCredits });
       }
       
       setCurrentStep(null);
     } catch (error) {
+      console.error("VideoSummarizerForm - Error in video summarization:", error);
       setResult({
-        error: "An unexpected error occurred. Please try again.",
+        error: "An unexpected error occurred. Please try logging out and back in, then try again.",
       });
       setCurrentStep(null);
     }

@@ -80,15 +80,20 @@ export async function authenticateUser(email: string, password: string): Promise
  */
 export async function getUserByEmail(email: string): Promise<User | null> {
   try {
-    // First, get the user from auth
+    // Query the users table by email
     const { data: authUser, error: authError } = await supabase
       .from('users')
       .select('*')
       .eq('email', email)
-      .single();
+      .maybeSingle(); // Use maybeSingle instead of single to avoid errors
 
-    if (authError || !authUser) {
-      console.error('Error fetching user by email:', authError?.message);
+    if (authError) {
+      console.error('Error fetching user by email:', authError.message);
+      return null;
+    }
+
+    if (!authUser) {
+      console.log(`No user found with email: ${email}`);
       return null;
     }
 
@@ -109,22 +114,24 @@ export async function getUserByEmail(email: string): Promise<User | null> {
  */
 export async function updateUserCredits(email: string, newCredits: number): Promise<User | null> {
   try {
-    // First get the user to find their ID
-    const user = await getUserByEmail(email);
-    if (!user) {
-      return null;
-    }
-
-    // Update the user's credits
+    // Direct query to update credits by email instead of querying by ID first
     const { data, error } = await supabase
       .from('users')
-      .update({ credits: newCredits, updated_at: new Date().toISOString() })
-      .eq('id', user.id)
+      .update({ 
+        credits: newCredits, 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('email', email)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error updating user credits:', error.message);
+      return null;
+    }
+
+    if (!data) {
+      console.error('User not found when updating credits for email:', email);
       return null;
     }
 
