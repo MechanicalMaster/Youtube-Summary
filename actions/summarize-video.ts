@@ -4,7 +4,7 @@ import { extractVideoId } from "@/lib/youtube-utils"
 import { fetchTranscript, TranscriptSourceType } from "@/lib/transcript-fetcher"
 import { generateSummary, StructuredSummary } from "@/lib/openai-utils"
 import { getUserByEmail, updateUserCredits } from "@/lib/auth"
-import { supabase } from "@/lib/supabase"
+import { supabase, supabaseAdmin } from "@/lib/supabase"
 
 // Define the return type for the summarizeYouTubeVideo function
 type SummarizeResult = {
@@ -319,7 +319,40 @@ async function generateSummaryForUser(
       sections: structuredSummary.sections.length
     });
 
-    // Deduct 1 credit from the user's account
+    // Save the summary to the summaries table
+    console.log(`[${new Date().toISOString()}] Saving summary to database:`, {
+      userId,
+      videoId,
+      title: videoTitle
+    });
+    
+    try {
+      // Using supabaseAdmin to bypass RLS
+      const { data: savedSummary, error: saveSummaryError } = await supabaseAdmin
+        .from('summaries')
+        .insert([
+          {
+            user_id: userId,
+            video_id: videoId,
+            video_title: videoTitle || 'Untitled Video',
+            summary_data: structuredSummary
+          }
+        ])
+        .select()
+        .maybeSingle();
+        
+      if (saveSummaryError) {
+        console.error(`[${new Date().toISOString()}] Error saving summary:`, saveSummaryError);
+        // Continue with the flow even if saving fails
+      } else {
+        console.log(`[${new Date().toISOString()}] Summary saved successfully with ID:`, savedSummary?.id);
+      }
+    } catch (saveSummaryErr) {
+      console.error(`[${new Date().toISOString()}] Unexpected error saving summary:`, saveSummaryErr);
+      // Continue with the flow even if saving fails
+    }
+
+    // Update credits directly in the database
     console.log(`[${new Date().toISOString()}] Updating credits:`, {
       userId,
       email: user.email,
@@ -327,8 +360,8 @@ async function generateSummaryForUser(
       to: user.credits - 1
     });
     
-    // Update credits directly in the database
-    const { data: updatedUserData, error: updateError } = await supabase
+    // Use supabaseAdmin to bypass RLS
+    const { data: updatedUserData, error: updateError } = await supabaseAdmin
       .from('users')
       .update({ 
         credits: user.credits - 1,
@@ -342,6 +375,15 @@ async function generateSummaryForUser(
       console.error(`[${new Date().toISOString()}] Error updating user credits:`, updateError);
       return { error: "Failed to update user credits" }
     }
+    
+    console.log(`[${new Date().toISOString()}] Credits update response:`, {
+      success: !updateError,
+      updatedUserData: updatedUserData ? {
+        id: updatedUserData.id,
+        email: updatedUserData.email,
+        credits: updatedUserData.credits
+      } : null
+    });
     
     let remainingCredits = user.credits - 1; // Default to the expected value
     

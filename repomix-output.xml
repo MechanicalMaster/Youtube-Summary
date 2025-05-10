@@ -47,8 +47,15 @@ The content is organized as follows:
 actions/
   summarize-video.ts
 app/
-  dashboard/
-    page.tsx
+  (dashboard)/
+    dashboard/
+      page.tsx
+    history/
+      page.tsx
+    summary/
+      [id]/
+        page.tsx
+    layout.tsx
   login/
     page.tsx
   profile/
@@ -99,6 +106,7 @@ components/
     skeleton.tsx
     slider.tsx
     sonner.tsx
+    summary-tile.tsx
     switch.tsx
     table.tsx
     tabs.tsx
@@ -111,6 +119,7 @@ components/
     use-mobile.tsx
     use-toast.ts
   auth-provider.tsx
+  custom-pagination.tsx
   theme-provider.tsx
   video-summarizer-form.tsx
 hooks/
@@ -119,6 +128,7 @@ hooks/
 lib/
   auth.ts
   openai-utils.ts
+  supabase.ts
   transcript-fetcher.ts
   utils.ts
   youtube-utils.ts
@@ -132,6 +142,7 @@ components.json
 next.config.mjs
 package.json
 postcss.config.mjs
+supabase.md
 tailwind.config.ts
 tsconfig.json
 </directory_structure>
@@ -139,119 +150,346 @@ tsconfig.json
 <files>
 This section contains the contents of the repository's files.
 
-<file path="actions/summarize-video.ts">
-"use server"
+<file path="app/(dashboard)/dashboard/page.tsx">
+"use client";
 
-import { extractVideoId } from "@/lib/youtube-utils"
-import { fetchTranscript, TranscriptSourceType } from "@/lib/transcript-fetcher"
-import { generateSummary, StructuredSummary } from "@/lib/openai-utils"
-import { getUserByEmail, updateUserCredits } from "@/lib/auth"
+import { VideoSummarizerForm } from "@/components/video-summarizer-form";
 
-// Define the return type for the summarizeYouTubeVideo function
-type SummarizeResult = {
-  structuredSummary?: StructuredSummary;
-  error?: string;
-  videoId?: string;
-  videoTitle?: string;
-  transcriptSource?: TranscriptSourceType;
-  remainingCredits?: number;
-  status?: string;
-}
-
-export async function summarizeYouTubeVideo(formData: FormData): Promise<SummarizeResult> {
-  const youtubeUrl = formData.get("youtubeUrl") as string
-  const userEmail = formData.get("userEmail") as string
-
-  // Step 1: Validate YouTube URL and user
-  if (!youtubeUrl) {
-    return { error: "Please enter a YouTube URL" }
-  }
-  
-  if (!userEmail) {
-    return { error: "You must be logged in to summarize videos" }
-  }
-  
-  // Check if user has enough credits
-  const user = getUserByEmail(userEmail)
-  if (!user) {
-    return { error: "User not found" }
-  }
-  
-  if (user.credits <= 0) {
-    return { error: "You don't have enough credits. Please purchase more credits." }
-  }
-
-  // Step 2: Extract video ID
-  const videoId = extractVideoId(youtubeUrl)
-  if (!videoId) {
-    return { error: "Please enter a valid YouTube URL" }
-  }
-
-  try {
-    // Step 3: Fetch transcript using the tier-based system
-    const { transcript, videoTitle, transcriptSource } = await fetchTranscript(videoId)
-
-    if (!transcript) {
-      return { error: "Transcript not available for this video" }
-    }
-
-    // Log transcript length and source for debugging
-    console.log(`Transcript fetched successfully. Length: ${transcript.length} characters, Source: ${transcriptSource}`)
-
-    // Step 4: Generate structured summary with sections and timestamps
-    const structuredSummary = await generateSummary(transcript)
-
-    if (!structuredSummary || !structuredSummary.overallSummary) {
-      return { error: "Unable to generate summary. Please try again later" }
-    }
-
-    // Step 5: Deduct 1 credit from the user's account
-    const updatedUser = updateUserCredits(userEmail, user.credits - 1)
-    if (!updatedUser) {
-      return { error: "Failed to update user credits" }
-    }
-    
-    // Step 6: Return the result with transcript source information, structured summary, and remaining credits
-    return {
-      structuredSummary,
-      videoId,
-      videoTitle,
-      transcriptSource,
-      remainingCredits: updatedUser.credits,
-    }
-  } catch (error: any) {
-    console.error("Error in summarizeYouTubeVideo:", error)
-
-    // Handle specific error types
-    if (error.message === "TRANSCRIPT_NOT_AVAILABLE") {
-      return { error: "Transcript not available for this video. The video may not have captions enabled." }
-    } else if (error.message === "YOUTUBE_API_ERROR") {
-      return { error: "Unable to retrieve video information. Please check the YouTube API key and try again later." }
-    } else if (error.message === "OPENAI_API_ERROR") {
-      return { error: "Unable to generate summary. Please check the OpenAI API key and try again later." }
-    } else if (error.message === "NETWORK_ERROR") {
-      return { error: "Network error. Please check your connection and try again." }
-    } else if (error.message === "VIDEO_NOT_FOUND") {
-      return { error: "The video could not be found. Please check the URL and try again." }
-    }
-
-    return { error: "An unexpected error occurred. Please try again." }
-  }
+export default function DashboardPage() {
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="bg-white p-6 rounded-lg shadow-sm">
+        <h2 className="text-lg font-medium mb-4">Generate Video Summary</h2>
+        <VideoSummarizerForm />
+      </div>
+    </div>
+  );
 }
 </file>
 
-<file path="app/dashboard/page.tsx">
+<file path="app/(dashboard)/history/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { fetchUserSummaries } from "@/lib/supabase";
+import { SummaryTile } from "@/components/ui/summary-tile";
+import { CustomPagination } from "@/components/custom-pagination";
+
+export default function HistoryPage() {
+  const { user } = useAuth();
+  const [summaries, setSummaries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const limit = 12; // Number of summaries per page
+
+  useEffect(() => {
+    if (user?.id) {
+      loadSummaries(user.id, currentPage);
+    }
+  }, [user, currentPage]);
+
+  const loadSummaries = async (userId: string, page: number) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const { summaries, error, count } = await fetchUserSummaries(userId, page, limit);
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      setSummaries(summaries || []);
+      
+      // Calculate total pages
+      const total = Math.ceil((count || 0) / limit);
+      setTotalPages(total || 1);
+    } catch (err: any) {
+      console.error("Error fetching summaries:", err);
+      setError(err.message || "Failed to load summaries");
+      setSummaries([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  if (!user) {
+    return <div className="text-center py-12">Please log in to view your history.</div>;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Your Summary History</h1>
+      
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      ) : summaries.length === 0 ? (
+        <div className="bg-white p-8 rounded-lg shadow-sm text-center">
+          <h3 className="text-lg mb-2">No summaries yet</h3>
+          <p className="text-gray-500">
+            You haven't created any summaries yet. Go to the dashboard to summarize a YouTube video.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {summaries.map((summary) => (
+              <SummaryTile
+                key={summary.id}
+                id={summary.id}
+                videoId={summary.video_id}
+                videoTitle={summary.video_title}
+                summaryData={summary.summary_data}
+                createdAt={summary.created_at}
+              />
+            ))}
+          </div>
+          
+          {totalPages > 1 && (
+            <div className="mt-8 flex justify-center">
+              <CustomPagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/summary/[id]/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import Image from "next/image";
+import { ChevronLeft } from "lucide-react";
+import { useAuth } from "@/components/auth-provider";
+import { fetchSummaryById } from "@/lib/supabase";
+import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+
+export default function SummaryPage({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [summary, setSummary] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    
+    const loadSummary = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const { summary, error } = await fetchSummaryById(params.id);
+        
+        if (error) {
+          throw new Error(error.message);
+        }
+        
+        if (!summary) {
+          throw new Error("Summary not found");
+        }
+        
+        // Check if the summary belongs to the current user
+        if (summary.user_id !== user.id) {
+          throw new Error("You don't have permission to view this summary");
+        }
+        
+        setSummary(summary);
+      } catch (err: any) {
+        console.error("Error fetching summary:", err);
+        setError(err.message || "Failed to load summary");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadSummary();
+  }, [params.id, user]);
+
+  if (!user) {
+    return <div className="text-center py-12">Please log in to view this summary.</div>;
+  }
+  
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto py-8">
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="max-w-4xl mx-auto py-8">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/history">
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Back to History
+          </Link>
+        </Button>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      </div>
+    );
+  }
+  
+  if (!summary) {
+    return (
+      <div className="max-w-4xl mx-auto py-8">
+        <Button variant="outline" asChild className="mb-4">
+          <Link href="/history">
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Back to History
+          </Link>
+        </Button>
+        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
+          Summary not found
+        </div>
+      </div>
+    );
+  }
+  
+  const youtubeUrl = `https://www.youtube.com/watch?v=${summary.video_id}`;
+  const thumbnailUrl = `https://img.youtube.com/vi/${summary.video_id}/maxresdefault.jpg`;
+  const formattedDate = new Date(summary.created_at).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  
+  return (
+    <div className="max-w-4xl mx-auto py-8">
+      <Button variant="outline" asChild className="mb-6">
+        <Link href="/history">
+          <ChevronLeft className="h-4 w-4 mr-2" />
+          Back to History
+        </Link>
+      </Button>
+      
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+        {/* Thumbnail and Title */}
+        <div className="aspect-video relative">
+          <Image
+            src={thumbnailUrl}
+            alt={summary.video_title}
+            fill
+            className="object-cover"
+          />
+        </div>
+        
+        <div className="p-6">
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold mb-2">{summary.video_title}</h1>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-sm text-muted-foreground">
+                Summarized {formattedDate}
+              </span>
+              <Button size="sm" asChild>
+                <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">
+                  Watch on YouTube
+                </a>
+              </Button>
+            </div>
+          </div>
+          
+          {/* Overall Summary */}
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-2">Overall Summary</h2>
+            <p className="text-gray-700">{summary.summary_data.overallSummary}</p>
+          </div>
+          
+          {/* Key Points */}
+          {summary.summary_data.keyPoints && summary.summary_data.keyPoints.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold mb-2">Key Points</h2>
+              <ul className="list-disc list-inside space-y-1">
+                {summary.summary_data.keyPoints.map((point: string, index: number) => (
+                  <li key={index} className="text-gray-700">{point}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {/* Sections */}
+          {summary.summary_data.sections && summary.summary_data.sections.length > 0 && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Detailed Breakdown</h2>
+              <Accordion type="single" collapsible className="w-full">
+                {summary.summary_data.sections.map((section: any, index: number) => (
+                  <AccordionItem key={index} value={`section-${index}`}>
+                    <AccordionTrigger className="hover:no-underline">
+                      <div className="text-left">
+                        <span className="font-medium">{section.title}</span>
+                        {section.timestamp && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            {section.timestamp}
+                          </span>
+                        )}
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="text-gray-700">
+                      {section.content}
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+</file>
+
+<file path="app/(dashboard)/layout.tsx">
 "use client";
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
-import { VideoSummarizerForm } from "@/components/video-summarizer-form";
 import { Button } from "@/components/ui/button";
-import { LogOut } from "lucide-react";
+import { LogOut, User, History, Home } from "lucide-react";
 
-export default function DashboardPage() {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { user, logout, isLoading } = useAuth();
   const router = useRouter();
 
@@ -261,6 +499,11 @@ export default function DashboardPage() {
       router.push("/login");
     }
   }, [user, isLoading, router]);
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
 
   if (isLoading) {
     return (
@@ -278,7 +521,31 @@ export default function DashboardPage() {
     <main className="min-h-screen flex flex-col bg-gray-50">
       <header className="bg-white shadow-sm py-4">
         <div className="container mx-auto px-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold">YouTube Summarizer</h1>
+          <div className="flex items-center">
+            <h1 className="text-xl font-bold">YouTube Summarizer</h1>
+            <nav className="ml-8">
+              <ul className="flex space-x-4">
+                <li>
+                  <Link 
+                    href="/dashboard" 
+                    className="flex items-center text-sm px-3 py-2 rounded-md hover:bg-gray-100"
+                  >
+                    <Home className="h-4 w-4 mr-2" />
+                    Dashboard
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    href="/history" 
+                    className="flex items-center text-sm px-3 py-2 rounded-md hover:bg-gray-100"
+                  >
+                    <History className="h-4 w-4 mr-2" />
+                    History
+                  </Link>
+                </li>
+              </ul>
+            </nav>
+          </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center">
               <span className="text-sm text-gray-600 mr-4">
@@ -290,9 +557,12 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" asChild>
-                <Link href="/profile">Profile</Link>
+                <Link href="/profile">
+                  <User className="h-4 w-4 mr-2" />
+                  Profile
+                </Link>
               </Button>
-              <Button variant="outline" size="sm" onClick={logout}>
+              <Button variant="outline" size="sm" onClick={handleLogout}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Logout
               </Button>
@@ -302,449 +572,178 @@ export default function DashboardPage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <h2 className="text-lg font-medium mb-4">Generate Video Summary</h2>
-            <VideoSummarizerForm />
-          </div>
-        </div>
+        {children}
       </div>
     </main>
   );
 }
 </file>
 
-<file path="app/login/page.tsx">
-"use client";
+<file path="components/ui/summary-tile.tsx">
+import React from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { formatDistanceToNow } from 'date-fns';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
+import { StructuredSummary } from '@/lib/openai-utils';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
+interface SummaryTileProps {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  summaryData: StructuredSummary;
+  createdAt: string;
+}
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-  const { login } = useAuth();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    setIsLoading(true);
-
-    try {
-      const user = await login(email, password);
-      if (user) {
-        router.push("/dashboard");
-      } else {
-        setError("Invalid email or password");
-      }
-    } catch (error) {
-      setError("An error occurred during login");
-      console.error(error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+export function SummaryTile({ id, videoId, videoTitle, summaryData, createdAt }: SummaryTileProps) {
+  // Format date as "3 days ago" or similar
+  const formattedDate = formatDistanceToNow(new Date(createdAt), { addSuffix: true });
+  
+  // Truncate summary to 120 characters
+  const truncatedSummary = summaryData.overallSummary.length > 120 
+    ? `${summaryData.overallSummary.substring(0, 120)}...` 
+    : summaryData.overallSummary;
+  
+  // YouTube thumbnail URL
+  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+  
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Login</CardTitle>
-          <CardDescription className="text-center">
-            Enter your email and password to access your account
-          </CardDescription>
+    <Link href={`/summary/${id}`} className="block">
+      <Card className="h-full overflow-hidden hover:shadow-md transition-shadow duration-200">
+        <div className="aspect-video relative">
+          <Image 
+            src={thumbnailUrl} 
+            alt={videoTitle}
+            fill
+            className="object-cover"
+          />
+        </div>
+        <CardHeader className="p-4 pb-2">
+          <h3 className="font-semibold text-lg line-clamp-1">{videoTitle}</h3>
         </CardHeader>
-        <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                Email
-              </label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </label>
-                <Link href="#" className="text-xs text-blue-600 hover:underline">
-                  Forgot password?
-                </Link>
-              </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Logging in..." : "Login"}
-            </Button>
-          </form>
+        <CardContent className="p-4 pt-0">
+          <p className="text-sm text-muted-foreground line-clamp-3">{truncatedSummary}</p>
         </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-gray-500">
-            Don't have an account?{" "}
-            <Link href="/signup" className="text-blue-600 hover:underline">
-              Sign up
-            </Link>
-          </p>
+        <CardFooter className="p-4 pt-0 text-xs text-muted-foreground">
+          {formattedDate}
         </CardFooter>
       </Card>
-    </div>
+    </Link>
   );
 }
+
+export default SummaryTile;
 </file>
 
-<file path="app/profile/page.tsx">
-"use client";
+<file path="components/custom-pagination.tsx">
+import * as React from "react";
+import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertCircle, User, CreditCard, ArrowLeft } from "lucide-react";
-import Link from "next/link";
+interface CustomPaginationProps {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}
 
-export default function ProfilePage() {
-  const { user, updateUserProfile, isLoading } = useAuth();
-  const [displayName, setDisplayName] = useState("");
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const router = useRouter();
-
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push("/login");
-    } else if (user) {
-      setDisplayName(user.displayName || user.name || "");
-    }
-  }, [user, isLoading, router]);
-
-  const handleUpdateProfile = (e: React.FormEvent) => {
+export function CustomPagination({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: CustomPaginationProps) {
+  
+  const handlePageClick = (page: number) => (e: React.MouseEvent) => {
     e.preventDefault();
+    onPageChange(page);
+  };
+  
+  // Generate array of page numbers to display
+  const getPageNumbers = () => {
+    const pageNumbers = [];
     
-    try {
-      updateUserProfile({ displayName });
-      setMessage({ type: "success", text: "Profile updated successfully!" });
+    if (totalPages <= 5) {
+      // If 5 or fewer pages, show all
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // Always include first and last page
+      pageNumbers.push(1);
       
-      // Clear message after 3 seconds
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage({ type: "error", text: "Failed to update profile" });
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null; // Will redirect in the useEffect
-  }
-
-  return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto">
-          <div className="mb-6">
-            <Link href="/dashboard" className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800">
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back to Dashboard
-            </Link>
-          </div>
-          
-          <h1 className="text-2xl font-bold mb-6">Your Profile</h1>
-          
-          <Tabs defaultValue="profile" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="profile" className="flex items-center">
-                <User className="h-4 w-4 mr-2" /> Profile
-              </TabsTrigger>
-              <TabsTrigger value="credits" className="flex items-center">
-                <CreditCard className="h-4 w-4 mr-2" /> Credits
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="profile" className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Profile Information</CardTitle>
-                  <CardDescription>
-                    Update your profile information here.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {message && (
-                    <Alert variant={message.type === "error" ? "destructive" : "default"} className="mb-4">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>{message.text}</AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  <form onSubmit={handleUpdateProfile} className="space-y-4">
-                    <div className="space-y-2">
-                      <label htmlFor="email" className="text-sm font-medium">
-                        Email
-                      </label>
-                      <Input
-                        id="email"
-                        value={user.email}
-                        disabled
-                        className="bg-gray-50"
-                      />
-                      <p className="text-xs text-gray-500">Your email cannot be changed</p>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label htmlFor="displayName" className="text-sm font-medium">
-                        Display Name
-                      </label>
-                      <Input
-                        id="displayName"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="How you want to be known"
-                      />
-                    </div>
-                    
-                    <Button type="submit">
-                      Update Profile
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            <TabsContent value="credits" className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your Credits</CardTitle>
-                  <CardDescription>
-                    View and manage your credits for summarizing videos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 text-center">
-                    <h3 className="text-3xl font-bold text-blue-700 mb-2">{user.credits}</h3>
-                    <p className="text-blue-600">Available Credits</p>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-medium">Credit Usage</h4>
-                    <div className="bg-white border rounded-md p-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm">Each video summary</span>
-                        <span className="text-sm font-medium">1 credit</span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full" 
-                          style={{ width: `${Math.min(100, (user.credits / 10) * 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/#pricing">Get More Credits</Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
-    </main>
-  );
-}
-</file>
-
-<file path="app/signup/page.tsx">
-"use client";
-
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
-
-export default function SignupPage() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
-  const { signup } = useAuth();
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
-
-    const email = e.currentTarget.email.value;
-    const password = e.currentTarget.password.value;
-    const confirmPassword = e.currentTarget.confirmPassword.value;
-    const displayName = e.currentTarget.displayName.value;
-
-    if (!email || !password || !confirmPassword) {
-      setError("Please fill in all required fields");
-      setIsLoading(false);
-      return;
+      if (currentPage <= 3) {
+        // Near the start
+        pageNumbers.push(2, 3, 4);
+        pageNumbers.push("ellipsis");
+      } else if (currentPage >= totalPages - 2) {
+        // Near the end
+        pageNumbers.push("ellipsis");
+        pageNumbers.push(totalPages - 3, totalPages - 2, totalPages - 1);
+      } else {
+        // Middle - show current page and one on each side
+        pageNumbers.push("ellipsis");
+        pageNumbers.push(currentPage - 1, currentPage, currentPage + 1);
+        pageNumbers.push("ellipsis");
+      }
+      
+      pageNumbers.push(totalPages);
     }
     
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      setIsLoading(false);
-      return;
-    }
-
-    try {
-      const success = await signup(email, password, displayName);
-      if (success) {
-        router.push("/dashboard");
-      } else {
-        setError("Failed to create account. Email may already be in use.");
-      }
-    } catch (err) {
-      setError("An error occurred during signup.");
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+    return pageNumbers;
   };
-
+  
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
-          <CardDescription className="text-center">
-            Enter your information to create an account
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium">
-                Name
-              </label>
-              <Input
-                id="name"
-                placeholder="John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="displayName">Display Name</label>
-              <Input
-                id="displayName"
-                name="displayName"
-                type="text"
-                placeholder="Your Name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-              />
-              <p className="text-xs text-gray-500">Optional. This will be displayed in your profile.</p>
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="email">Email</label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="password">Password</label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="confirmPassword">Confirm Password</label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Sign up"}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="flex justify-center">
-          <p className="text-sm text-gray-500">
-            Already have an account?{" "}
-            <Link href="/login" className="text-blue-600 hover:underline">
-              Log in
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
-    </div>
+    <Pagination>
+      <PaginationContent>
+        {/* Previous button */}
+        {currentPage > 1 && (
+          <PaginationItem>
+            <PaginationPrevious href="#" onClick={handlePageClick(currentPage - 1)} />
+          </PaginationItem>
+        )}
+        
+        {/* Page numbers */}
+        {getPageNumbers().map((pageNumber, index) => {
+          if (pageNumber === "ellipsis") {
+            return (
+              <PaginationItem key={`ellipsis-${index}`}>
+                <PaginationEllipsis />
+              </PaginationItem>
+            );
+          }
+          
+          return (
+            <PaginationItem key={pageNumber}>
+              <PaginationLink 
+                href="#" 
+                isActive={pageNumber === currentPage}
+                onClick={handlePageClick(pageNumber as number)}
+              >
+                {pageNumber}
+              </PaginationLink>
+            </PaginationItem>
+          );
+        })}
+        
+        {/* Next button */}
+        {currentPage < totalPages && (
+          <PaginationItem>
+            <PaginationNext href="#" onClick={handlePageClick(currentPage + 1)} />
+          </PaginationItem>
+        )}
+      </PaginationContent>
+    </Pagination>
   );
 }
+
+export default CustomPagination;
 </file>
 
 <file path="app/globals.css">
@@ -6041,119 +6040,6 @@ function useToast() {
 export { useToast, toast }
 </file>
 
-<file path="components/auth-provider.tsx">
-"use client";
-
-import { createContext, useContext, useState, useEffect } from "react";
-import { User, authenticateUser, createUser, DUMMY_USERS } from "@/lib/auth";
-
-type AuthContextType = {
-  user: User | null;
-  login: (email: string, password: string) => Promise<User | null>;
-  signup: (email: string, password: string, name?: string, displayName?: string) => Promise<User | null>;
-  logout: () => void;
-  isLoading: boolean;
-  updateUserProfile: (updates: Partial<User>) => void;
-  updateUser: (user: User) => void;
-};
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Check for saved user on mount
-  useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error("Failed to parse saved user", e);
-        localStorage.removeItem("user");
-      }
-    }
-    setIsLoading(false);
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    const authenticatedUser = authenticateUser(email, password);
-    if (authenticatedUser) {
-      setUser(authenticatedUser);
-      localStorage.setItem("user", JSON.stringify(authenticatedUser));
-    }
-    return authenticatedUser;
-  };
-
-  const signup = async (email: string, password: string, name?: string, displayName?: string) => {
-    const newUser = createUser(email, password, name, displayName);
-    if (newUser) {
-      setUser(newUser);
-      localStorage.setItem("user", JSON.stringify(newUser));
-    }
-    return newUser;
-  };
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem("user");
-  };
-
-  const updateUserProfile = (updates: Partial<User>) => {
-    if (!user) return;
-    
-    // Create updated user object
-    const updatedUser = { ...user, ...updates };
-    
-    // Update state and localStorage
-    setUser(updatedUser);
-    localStorage.setItem("user", JSON.stringify(updatedUser));
-    
-    // In a real app, we would also update the database
-    // For this demo, we'll just update our DUMMY_USERS array
-    const userIndex = DUMMY_USERS.findIndex(u => u.id === user.id);
-    if (userIndex !== -1) {
-      // Update everything except password which isn't in the User type
-      DUMMY_USERS[userIndex] = {
-        ...DUMMY_USERS[userIndex],
-        ...updates
-      };
-    }
-  };
-
-  // Function to update the entire user object
-  const updateUser = (updatedUser: User) => {
-    setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        signup,
-        logout,
-        isLoading,
-        updateUserProfile,
-        updateUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
-}
-</file>
-
 <file path="components/theme-provider.tsx">
 'use client'
 
@@ -6165,226 +6051,6 @@ import {
 
 export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
   return <NextThemesProvider {...props}>{children}</NextThemesProvider>
-}
-</file>
-
-<file path="components/video-summarizer-form.tsx">
-"use client"
-
-import { useState } from "react"
-import { useFormStatus } from "react-dom"
-import { summarizeYouTubeVideo } from "@/actions/summarize-video"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Loader2, Copy, CheckCircle2, AlertCircle, RefreshCw, Clock } from "lucide-react"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Badge } from "@/components/ui/badge"
-import { StructuredSummary } from "@/lib/openai-utils"
-import { useAuth } from "@/components/auth-provider"
-
-function SubmitButton() {
-  const { pending } = useFormStatus()
-
-  return (
-    <Button type="submit" className="w-full" disabled={pending}>
-      {pending ? (
-        <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Processing...
-        </>
-      ) : (
-        "Generate Summary"
-      )}
-    </Button>
-  )
-}
-
-export function VideoSummarizerForm() {
-  const { user, updateUser } = useAuth()
-  const [result, setResult] = useState<{
-    structuredSummary?: StructuredSummary
-    error?: string
-    videoId?: string
-    videoTitle?: string
-    status?: string
-    transcriptSource?: string
-    remainingCredits?: number
-  } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [currentStep, setCurrentStep] = useState<string | null>(null);
-
-  async function handleSubmit(formData: FormData) {
-    if (!user) {
-      setResult({ error: "You must be logged in to summarize videos" })
-      return
-    }
-    
-    // Add user email to the form data
-    formData.append("userEmail", user.email)
-    
-    setResult({ status: "processing" });
-    setCurrentStep("Validating YouTube URL");
-
-    try {
-      // Simulate step progression for better UX
-      setTimeout(() => setCurrentStep("Fetching video information"), 500);
-      setTimeout(() => setCurrentStep("Retrieving transcript"), 1500);
-      setTimeout(() => setCurrentStep("Generating summary with AI"), 3000);
-
-      const response = await summarizeYouTubeVideo(formData);
-      setResult(response);
-      
-      // Update user credits if the response includes remainingCredits
-      if (response.remainingCredits !== undefined && user) {
-        updateUser({ ...user, credits: response.remainingCredits })
-      }
-      
-      setCurrentStep(null);
-    } catch (error) {
-      setResult({
-        error: "An unexpected error occurred. Please try again.",
-      });
-      setCurrentStep(null);
-    }
-  }
-
-  function copyToClipboard() {
-    if (result?.structuredSummary) {
-      // Create a formatted text with the summary and sections
-      let fullSummary = result.structuredSummary.overallSummary;
-      fullSummary += "\n\n"; // Add two line breaks after the overall summary
-      
-      // Add each section with its title, timestamp, and content
-      result.structuredSummary.sections.forEach((section) => {
-        fullSummary += `## ${section.title} (${section.timestamp})\n`;
-        fullSummary += `${section.content}\n\n`;
-      });
-      
-      navigator.clipboard.writeText(fullSummary);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
-
-  function resetForm() {
-    setResult(null);
-    setCurrentStep(null);
-  }
-
-  return (
-    <div className="space-y-6">
-      <form action={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <label htmlFor="youtubeUrl" className="text-sm font-medium">
-            YouTube Video URL
-          </label>
-          <Input
-            id="youtubeUrl"
-            name="youtubeUrl"
-            type="url"
-            placeholder="https://www.youtube.com/watch?v=..."
-            required
-            className="w-full"
-          />
-        </div>
-        {user && (
-          <div className="text-sm text-gray-500">
-            You have <span className="font-semibold">{user.credits}</span> credits remaining
-          </div>
-        )}
-        <SubmitButton />
-      </form>
-
-      {result?.status === "processing" && (
-        <div className="flex flex-col items-center justify-center py-8 space-y-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm font-medium">{currentStep || "Processing..."}</p>
-          <p className="text-xs text-gray-500">This may take a few moments depending on the video length</p>
-        </div>
-      )}
-
-      {result?.error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{result.error}</AlertDescription>
-        </Alert>
-      )}
-
-      {result?.structuredSummary && (
-        <Card className="overflow-hidden">
-          <CardContent className="p-6 space-y-6">
-            {result.videoTitle && (
-              <div className="space-y-2">
-                <div className="flex justify-between items-start">
-                  <h3 className="text-lg font-semibold">Video Summary</h3>
-                  <Button variant="ghost" size="icon" onClick={copyToClipboard} title="Copy to clipboard">
-                    {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-                <p className="text-sm text-gray-500">{result.videoTitle}</p>
-                {result.transcriptSource && (
-                  <Badge variant="secondary" className="text-xs">
-                    {result.transcriptSource}
-                  </Badge>
-                )}
-              </div>
-            )}
-            
-            {/* Overall Summary */}
-            <div className="prose prose-sm max-w-none bg-muted/50 p-4 rounded-md">
-              <h4 className="text-base font-medium mb-2">Overview</h4>
-              <p>{result.structuredSummary.overallSummary}</p>
-            </div>
-            
-            {/* Sections with Timestamps */}
-            <Accordion type="multiple" defaultValue={["section-0"]} className="w-full">
-              {result.structuredSummary.sections.map((section, index) => (
-                <AccordionItem key={index} value={`section-${index}`}>
-                  <AccordionTrigger className="hover:no-underline">
-                    <div className="flex items-center justify-between w-full pr-4">
-                      <span className="font-medium text-left">{section.title}</span>
-                      <Badge variant="outline" className="ml-2 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>{section.timestamp}</span>
-                      </Badge>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="text-sm">
-                    <p className="py-2">{section.content}</p>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-            
-            {result.videoId && (
-              <div className="pt-2 border-t">
-                <a
-                  href={`https://www.youtube.com/watch?v=${result.videoId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-600 hover:underline"
-                >
-                  View original video
-                </a>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {(result?.structuredSummary || result?.error) && (
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={resetForm}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Summarize Another Video
-          </Button>
-        </div>
-      )}
-    </div>
-  );
 }
 </file>
 
@@ -6607,110 +6273,6 @@ function useToast() {
 export { useToast, toast }
 </file>
 
-<file path="lib/auth.ts">
-// Simple auth context for demonstration purposes
-
-export type User = {
-  id: string;
-  email: string;
-  name?: string;
-  displayName?: string;
-  credits: number;
-};
-
-// User with password for internal use
-type UserWithPassword = {
-  id: string;
-  email: string;
-  password: string;
-  name?: string;
-  displayName?: string;
-  credits: number;
-};
-
-// Dummy user credentials for demonstration
-export const DUMMY_USERS: UserWithPassword[] = [
-  {
-    id: "1",
-    email: "user@example.com",
-    password: "password123",
-    name: "Demo User",
-    displayName: "Demo",
-    credits: 10,
-  },
-];
-
-export function authenticateUser(email: string, password: string): User | null {
-  const user = DUMMY_USERS.find(
-    (u) => u.email === email && u.password === password
-  );
-  
-  if (!user) return null;
-  
-  // Return user without password
-  return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    displayName: user.displayName,
-    credits: user.credits,
-  };
-}
-
-export function getUserByEmail(email: string): User | null {
-  return DUMMY_USERS.find((user) => user.email === email) || null;
-}
-
-export function updateUserCredits(email: string, newCredits: number): User | null {
-  const userIndex = DUMMY_USERS.findIndex((user) => user.email === email);
-  if (userIndex === -1) {
-    return null;
-  }
-  
-  // Update user credits
-  DUMMY_USERS[userIndex] = {
-    ...DUMMY_USERS[userIndex],
-    credits: newCredits,
-  };
-  
-  return {
-    id: DUMMY_USERS[userIndex].id,
-    email: DUMMY_USERS[userIndex].email,
-    name: DUMMY_USERS[userIndex].name,
-    displayName: DUMMY_USERS[userIndex].displayName,
-    credits: DUMMY_USERS[userIndex].credits,
-  };
-}
-
-export function createUser(email: string, password: string, name?: string, displayName?: string): User | null {
-  // Check if user already exists
-  const existingUser = DUMMY_USERS.find((u) => u.email === email);
-  if (existingUser) return null;
-  
-  // In a real app, we would create a user in the database
-  // For this demo, we'll just add to our array (but this won't persist across page refreshes)
-  const newUser = {
-    id: String(DUMMY_USERS.length + 1),
-    email,
-    password,
-    name,
-    displayName: displayName || name, // Use name as displayName if not provided
-    credits: 10, // Give new users 10 credits by default
-  };
-  
-  DUMMY_USERS.push(newUser);
-  
-  // Return user without password
-  return {
-    id: newUser.id,
-    email: newUser.email,
-    name: newUser.name,
-    displayName: newUser.displayName,
-    credits: newUser.credits,
-  };
-}
-</file>
-
 <file path="lib/openai-utils.ts">
 import { OpenAI } from "openai"
 
@@ -6839,6 +6401,48 @@ function processTranscript(transcript: string): string {
 
   return processed
 }
+</file>
+
+<file path="lib/supabase.ts">
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+
+// Check for environment variables
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase environment variables. Check your .env.local file.');
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Fetch summaries for a user with pagination
+export async function fetchUserSummaries(userId: string, page = 1, limit = 12) {
+  const offset = (page - 1) * limit;
+  
+  // Get summaries
+  const { data: summaries, error, count } = await supabase
+    .from('summaries')
+    .select('*', { count: 'exact' })
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+    
+  return { summaries, error, count, page, limit };
+}
+
+// Fetch a single summary by ID
+export async function fetchSummaryById(summaryId: string) {
+  const { data: summary, error } = await supabase
+    .from('summaries')
+    .select('*')
+    .eq('id', summaryId)
+    .maybeSingle();
+    
+  return { summary, error };
+}
+
+export default supabase;
 </file>
 
 <file path="lib/transcript-fetcher.ts">
@@ -7131,23 +6735,6 @@ next-env.d.ts
 }
 </file>
 
-<file path="next.config.mjs">
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  images: {
-    unoptimized: true,
-  },
-}
-
-export default nextConfig
-</file>
-
 <file path="postcss.config.mjs">
 /** @type {import('postcss-load-config').Config} */
 const config = {
@@ -7157,6 +6744,141 @@ const config = {
 };
 
 export default config;
+</file>
+
+<file path="supabase.md">
+Step-by-Step Plan for Integrating Supabase Authentication and Database
+Overview
+The plan involves replacing the existing dummy authentication system (lib/auth.ts) with Supabase Authentication and integrating Supabase Database to store user data and credits. The integration will maintain the current functionality, including user authentication, profile management, and credit tracking, while leveraging Supabase for secure and scalable backend services.
+Step 1: Set Up Supabase Project
+
+Create a new Supabase project via the Supabase Dashboard.
+Obtain the Supabase URL and Anon Key from the project settings.
+Store these credentials securely in .env.local (already ignored by .gitignore).
+
+Impacted Files:
+
+.env.local (create or update to include Supabase credentials)
+
+Step 2: Configure Supabase Client
+
+Initialize the Supabase client in a dedicated utility file to handle authentication and database interactions.
+Ensure the client is accessible across the application, particularly for authentication and user data management.
+
+Impacted Files:
+
+lib/supabase.ts (new file to initialize and export Supabase client)
+package.json (verify Supabase dependencies are included; already present)
+
+Step 3: Update Authentication Provider
+
+Modify the AuthProvider to use Supabase Authentication instead of the dummy auth system.
+Update context to handle Supabase user sessions, including login, signup, logout, and profile updates.
+Replace dummy user checks with Supabase session management.
+
+Impacted Files:
+
+components/auth-provider.tsx (update to use Supabase auth)
+
+Step 4: Replace Dummy Auth Logic
+
+Remove the dummy authentication logic and replace it with Supabase Authentication methods (e.g., signInWithPassword, signUp, signOut).
+Update user creation and authentication functions to interact with Supabase Auth.
+
+Impacted Files:
+
+lib/auth.ts (replace dummy auth with Supabase Auth functions)
+
+Step 5: Set Up Supabase Database
+
+Create a users table in Supabase to store user data (e.g., id, email, display_name, credits).
+Define table schema and Row-Level Security (RLS) policies to ensure users can only access their own data.
+Update database interactions to use Supabase Database instead of dummy user array.
+
+Impacted Files:
+
+None directly (database schema managed in Supabase Dashboard)
+
+Step 6: Update User Data Management
+
+Modify functions for retrieving and updating user data (e.g., getUserByEmail, updateUserCredits) to query the Supabase users table.
+Ensure credit updates are performed securely with proper validation.
+
+Impacted Files:
+
+lib/auth.ts (update data access functions to use Supabase Database)
+actions/summarize-video.ts (update user credit checks and updates to use Supabase)
+
+Step 7: Update Authentication Pages
+
+Update the signup page to use Supabase for user registration, including storing display_name and initializing credits.
+Update the login page to authenticate users via Supabase.
+Update the profile page to fetch and update user data from Supabase.
+
+Impacted Files:
+
+app/signup/page.tsx (update signup form to use Supabase Auth)
+app/login/page.tsx (update login form to use Supabase Auth)
+app/profile/page.tsx (update profile data fetching and updates to use Supabase)
+
+Step 8: Update Dashboard
+
+Ensure the dashboard fetches user data and credits from Supabase.
+Update any user-related displays (e.g., welcome message, credits) to reflect Supabase data.
+
+Impacted Files:
+
+app/dashboard/page.tsx (update user data and credits display)
+
+Step 9: Secure Server-Side Actions
+
+Update server-side actions (e.g., video summarization) to use Supabase client for user authentication and data access.
+Ensure proper session management for server-side operations.
+
+Impacted Files:
+
+actions/summarize-video.ts (update to use Supabase for user validation and credit updates)
+
+Step 10: Test and Validate
+
+Test signup, login, logout, profile updates, and video summarization flows.
+Verify that credits are correctly managed in the Supabase Database.
+Ensure RLS policies prevent unauthorized data access.
+Validate error handling for authentication and database operations.
+
+Impacted Files:
+
+None directly (testing involves all modified files)
+
+Step 11: Update Environment Variables
+
+Ensure all environment variables (e.g., NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY) are correctly set in .env.local and documented for deployment.
+
+Impacted Files:
+
+.env.local (update with Supabase credentials)
+next.config.mjs (ensure environment variables are accessible)
+
+Summary of Impacted Files
+
+.env.local (add Supabase credentials)
+lib/supabase.ts (new file for Supabase client)
+lib/auth.ts (replace dummy auth with Supabase Auth and Database)
+components/auth-provider.tsx (update to use Supabase Auth)
+app/signup/page.tsx (update signup to use Supabase)
+app/login/page.tsx (update login to use Supabase)
+app/profile/page.tsx (update profile to use Supabase)
+app/dashboard/page.tsx (update user data and credits display)
+actions/summarize-video.ts (update user validation and credit updates)
+next.config.mjs (ensure environment variable access)
+package.json (verify Supabase dependencies)
+
+Notes
+
+Ensure Supabase dependencies (@supabase/supabase-js, @supabase/auth-helpers-nextjs, etc.) are correctly installed (already present in package.json).
+Use Supabase's Row-Level Security to secure user data access.
+Test thoroughly to ensure session management works across client and server contexts.
+Document any new environment variables for team members or deployment.
 </file>
 
 <file path="tailwind.config.ts">
@@ -7285,6 +7007,442 @@ export default config;
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
+}
+</file>
+
+<file path="app/login/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const { login } = useAuth();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const user = await login(email, password);
+      if (user) {
+        router.push("/dashboard");
+      } else {
+        setError("Invalid email or password");
+      }
+    } catch (error: any) {
+      setError(error?.message || "An error occurred during login");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl font-bold text-center">Login</CardTitle>
+          <CardDescription className="text-center">
+            Enter your email and password to access your account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="email" className="text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="name@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="text-sm font-medium">
+                  Password
+                </label>
+                <Link href="#" className="text-xs text-blue-600 hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? "Logging in..." : "Login"}
+            </Button>
+          </form>
+        </CardContent>
+        <CardFooter className="flex justify-center">
+          <p className="text-sm text-gray-500">
+            Don't have an account?{" "}
+            <Link href="/signup" className="text-blue-600 hover:underline">
+              Sign up
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
+    </div>
+  );
+}
+</file>
+
+<file path="app/profile/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertCircle, User, CreditCard, ArrowLeft } from "lucide-react";
+import Link from "next/link";
+
+export default function ProfilePage() {
+  const { user, updateUserProfile, isLoading } = useAuth();
+  const [displayName, setDisplayName] = useState("");
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const router = useRouter();
+
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/login");
+    } else if (user) {
+      setDisplayName(user.displayName || user.name || "");
+    }
+  }, [user, isLoading, router]);
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdating(true);
+    
+    try {
+      await updateUserProfile({ displayName });
+      setMessage({ type: "success", text: "Profile updated successfully!" });
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      setMessage({ type: "error", text: error?.message || "Failed to update profile" });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect in the useEffect
+  }
+
+  return (
+    <main className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center mb-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mr-4"
+            asChild
+          >
+            <Link href="/dashboard">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Your Profile</h1>
+        </div>
+        
+        <div className="mb-8">
+          <Tabs defaultValue="account">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="account">
+                <User className="h-4 w-4 mr-2" />
+                Account
+              </TabsTrigger>
+              <TabsTrigger value="credits">
+                <CreditCard className="h-4 w-4 mr-2" />
+                Credits
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="account" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Information</CardTitle>
+                  <CardDescription>
+                    Update your account settings and profile information.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {message && (
+                    <Alert variant={message.type === "success" ? "default" : "destructive"}>
+                      <AlertDescription>{message.text}</AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  <div className="border rounded-lg p-4 bg-gray-50">
+                    <div className="mb-2 text-sm font-medium text-gray-500">Email</div>
+                    <div className="text-base font-medium">{user.email}</div>
+                  </div>
+                  
+                  <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="displayName" className="text-sm font-medium">
+                        Display Name
+                      </label>
+                      <Input
+                        id="displayName"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="How you want to be addressed"
+                      />
+                    </div>
+                    
+                    <Button type="submit" disabled={isUpdating}>
+                      {isUpdating ? "Updating..." : "Update Profile"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="credits" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Your Credits</CardTitle>
+                  <CardDescription>
+                    View and manage your credits for summarizing videos.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 text-center">
+                    <h3 className="text-3xl font-bold text-blue-700 mb-2">{user.credits}</h3>
+                    <p className="text-blue-600">Available Credits</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-medium">Credit Usage</h4>
+                    <div className="bg-white border rounded-md p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm">Each video summary</span>
+                        <span className="text-sm font-medium">1 credit</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 rounded-full" 
+                          style={{ width: `${Math.min(100, (user.credits / 10) * 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href="/#pricing">Get More Credits</Link>
+                  </Button>
+                </CardFooter>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+    </main>
+  );
+}
+</file>
+
+<file path="app/signup/page.tsx">
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
+
+export default function SignupPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const router = useRouter();
+  const { signup } = useAuth();
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
+
+    const email = e.currentTarget.email.value;
+    const password = e.currentTarget.password.value;
+    const confirmPassword = e.currentTarget.confirmPassword.value;
+    const displayName = e.currentTarget.displayName.value || name;
+
+    if (!email || !password || !confirmPassword) {
+      setError("Please fill in all required fields");
+      setIsLoading(false);
+      return;
+    }
+    
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const user = await signup(email, password, name, displayName);
+      if (user) {
+        router.push("/dashboard");
+      } else {
+        setError("Failed to create account. Email may already be in use.");
+      }
+    } catch (err: any) {
+      setError(err?.message || "An error occurred during signup.");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl font-bold text-center">Create an account</CardTitle>
+          <CardDescription className="text-center">
+            Enter your information to create an account
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium">
+                Name
+              </label>
+              <Input
+                id="name"
+                placeholder="John Doe"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="displayName">Display Name</label>
+              <Input
+                id="displayName"
+                name="displayName"
+                type="text"
+                placeholder="Your Name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+              />
+              <p className="text-xs text-gray-500">Optional. This will be displayed in your profile.</p>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="email">Email</label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="password">Password</label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword">Confirm Password</label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? "Creating account..." : "Sign up"}
+            </Button>
+          </form>
+        </CardContent>
+        <CardFooter className="flex justify-center">
+          <p className="text-sm text-gray-500">
+            Already have an account?{" "}
+            <Link href="/login" className="text-blue-600 hover:underline">
+              Log in
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
+    </div>
+  );
 }
 </file>
 
@@ -7636,6 +7794,281 @@ export default function Home() {
 }
 </file>
 
+<file path="components/video-summarizer-form.tsx">
+"use client"
+
+import { useState, useEffect } from "react"
+import { useFormStatus } from "react-dom"
+import { summarizeYouTubeVideo } from "@/actions/summarize-video"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Loader2, Copy, CheckCircle2, AlertCircle, RefreshCw, Clock } from "lucide-react"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
+import { StructuredSummary } from "@/lib/openai-utils"
+import { useAuth } from "@/components/auth-provider"
+
+function SubmitButton() {
+  const { pending } = useFormStatus()
+
+  return (
+    <Button type="submit" className="w-full" disabled={pending}>
+      {pending ? (
+        <>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Processing...
+        </>
+      ) : (
+        "Generate Summary"
+      )}
+    </Button>
+  )
+}
+
+export function VideoSummarizerForm() {
+  const { user, updateUser } = useAuth()
+  const [result, setResult] = useState<{
+    structuredSummary?: StructuredSummary
+    error?: string
+    videoId?: string
+    videoTitle?: string
+    status?: string
+    transcriptSource?: string
+    remainingCredits?: number
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [currentStep, setCurrentStep] = useState<string | null>(null);
+  
+  // Log user data when it changes
+  useEffect(() => {
+    if (user) {
+      console.log("VideoSummarizerForm - Current user data:", {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        credits: user.credits
+      });
+    } else {
+      console.log("VideoSummarizerForm - No user data available");
+    }
+  }, [user]);
+
+  async function handleSubmit(formData: FormData) {
+    if (!user) {
+      console.log("VideoSummarizerForm - Submit attempted with no user");
+      setResult({ error: "You must be logged in to summarize videos" })
+      return
+    }
+    
+    // Add user data to the form data
+    formData.append("userEmail", user.email)
+    formData.append("userId", user.id)
+    
+    console.log("VideoSummarizerForm - Submitting with user data:", {
+      id: user.id,
+      email: user.email,
+      credits: user.credits
+    });
+    
+    setResult({ status: "processing" });
+    setCurrentStep("Validating YouTube URL");
+
+    try {
+      // Simulate step progression for better UX
+      setTimeout(() => setCurrentStep("Fetching video information"), 500);
+      setTimeout(() => setCurrentStep("Retrieving transcript"), 1500);
+      setTimeout(() => setCurrentStep("Generating summary with AI"), 3000);
+
+      console.log("VideoSummarizerForm - Calling summarizeYouTubeVideo action");
+      const response = await summarizeYouTubeVideo(formData);
+      console.log("VideoSummarizerForm - Action response:", response);
+      setResult(response);
+      
+      // Update user credits if the response includes remainingCredits
+      if (response.remainingCredits !== undefined && user) {
+        console.log("VideoSummarizerForm - Updating user credits:", {
+          from: user.credits,
+          to: response.remainingCredits
+        });
+        updateUser({ ...user, credits: response.remainingCredits });
+      }
+      
+      setCurrentStep(null);
+    } catch (error) {
+      console.error("VideoSummarizerForm - Error in video summarization:", error);
+      setResult({
+        error: "An unexpected error occurred. Please try logging out and back in, then try again.",
+      });
+      setCurrentStep(null);
+    }
+  }
+
+  function copyToClipboard() {
+    if (result?.structuredSummary) {
+      // Create a formatted text with the summary and sections
+      let fullSummary = result.structuredSummary.overallSummary;
+      fullSummary += "\n\n"; // Add two line breaks after the overall summary
+      
+      // Add each section with its title, timestamp, and content
+      result.structuredSummary.sections.forEach((section) => {
+        fullSummary += `## ${section.title} (${section.timestamp})\n`;
+        fullSummary += `${section.content}\n\n`;
+      });
+      
+      navigator.clipboard.writeText(fullSummary);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  function resetForm() {
+    setResult(null);
+    setCurrentStep(null);
+  }
+
+  return (
+    <div className="space-y-6">
+      <form action={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <label htmlFor="youtubeUrl" className="text-sm font-medium">
+            YouTube Video URL
+          </label>
+          <Input
+            id="youtubeUrl"
+            name="youtubeUrl"
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            required
+            className="w-full"
+          />
+        </div>
+        {user && (
+          <div className="text-sm text-gray-500">
+            You have <span className="font-semibold">{user.credits}</span> credits remaining
+          </div>
+        )}
+        <SubmitButton />
+      </form>
+
+      {result?.status === "processing" && (
+        <div className="flex flex-col items-center justify-center py-8 space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm font-medium">{currentStep || "Processing..."}</p>
+          <p className="text-xs text-gray-500">This may take a few moments depending on the video length</p>
+        </div>
+      )}
+
+      {result?.error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{result.error}</AlertDescription>
+        </Alert>
+      )}
+
+      {result?.structuredSummary && (
+        <Card className="overflow-hidden">
+          <CardContent className="p-6 space-y-6">
+            {result.videoTitle && (
+              <div className="space-y-2">
+                <div className="flex justify-between items-start">
+                  <h3 className="text-lg font-semibold">Video Summary</h3>
+                  <Button variant="ghost" size="icon" onClick={copyToClipboard} title="Copy to clipboard">
+                    {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+                <p className="text-sm text-gray-500">{result.videoTitle}</p>
+                {result.transcriptSource && (
+                  <Badge variant="secondary" className="text-xs">
+                    {result.transcriptSource}
+                  </Badge>
+                )}
+              </div>
+            )}
+            
+            {/* Overall Summary */}
+            <div className="prose prose-sm max-w-none bg-muted/50 p-4 rounded-md">
+              <h4 className="text-base font-medium mb-2">Overview</h4>
+              <p>{result.structuredSummary.overallSummary}</p>
+            </div>
+            
+            {/* Sections with Timestamps */}
+            <Accordion type="multiple" defaultValue={["section-0"]} className="w-full">
+              {result.structuredSummary.sections.map((section, index) => (
+                <AccordionItem key={index} value={`section-${index}`}>
+                  <AccordionTrigger className="hover:no-underline">
+                    <div className="flex items-center justify-between w-full pr-4">
+                      <span className="font-medium text-left">{section.title}</span>
+                      <Badge variant="outline" className="ml-2 flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        <span>{section.timestamp}</span>
+                      </Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="text-sm">
+                    <p className="py-2">{section.content}</p>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+            
+            {result.videoId && (
+              <div className="pt-2 border-t">
+                <a
+                  href={`https://www.youtube.com/watch?v=${result.videoId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline"
+                >
+                  View original video
+                </a>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {(result?.structuredSummary || result?.error) && (
+        <div className="flex justify-center">
+          <Button variant="outline" onClick={resetForm}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Summarize Another Video
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+</file>
+
+<file path="next.config.mjs">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  images: {
+    unoptimized: true,
+  },
+  env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  },
+  reactStrictMode: true,
+  swcMinify: true,
+  images: {
+    domains: ['i.ytimg.com', 'img.youtube.com'],
+  },
+}
+
+export default nextConfig
+</file>
+
 <file path="package.json">
 {
   "name": "my-v0-project",
@@ -7716,6 +8149,915 @@ export default function Home() {
     "typescript": "^5"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
+</file>
+
+<file path="components/auth-provider.tsx">
+"use client";
+
+import { createContext, useContext, useState, useEffect } from "react";
+import { User, authenticateUser, createUser } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+
+type AuthContextType = {
+  user: User | null;
+  login: (email: string, password: string) => Promise<User | null>;
+  signup: (email: string, password: string, name?: string, displayName?: string) => Promise<User | null>;
+  logout: () => Promise<void>;
+  isLoading: boolean;
+  updateUserProfile: (updates: Partial<User>) => Promise<void>;
+  updateUser: (user: User) => void;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check for Supabase session on mount and setup auth listener
+  useEffect(() => {
+    // Get current session and user
+    const initializeAuth = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Check for existing session
+        const { data: sessionData } = await supabase.auth.getSession();
+        
+        if (sessionData.session) {
+          console.log("Auth session found, fetching user data");
+          
+          // User is logged in, get profile data
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', sessionData.session.user.id)
+            .maybeSingle(); // Use maybeSingle instead of single
+            
+          if (userError) {
+            console.error('Error fetching user data during initialization:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found for authenticated user. This may occur if the user record hasn't been created yet.");
+          } else {
+            console.log("User data loaded successfully");
+            setUser({
+              id: sessionData.session.user.id,
+              email: sessionData.session.user.email!,
+              displayName: userData.display_name,
+              credits: userData.credits,
+            });
+          }
+        } else {
+          console.log("No active auth session found");
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Initialize auth
+    initializeAuth();
+
+    // Subscribe to auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log(`Auth state changed: ${event}`);
+        
+        if (event === 'SIGNED_IN' && session) {
+          console.log("User signed in, updating user data");
+          // Get user profile data
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle(); // Use maybeSingle instead of single
+            
+          if (userError) {
+            console.error('Error fetching user data on auth change:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found after sign in. User record may not exist yet.");
+          } else {
+            setUser({
+              id: session.user.id,
+              email: session.user.email!,
+              displayName: userData.display_name,
+              credits: userData.credits,
+            });
+          }
+        } else if (event === 'SIGNED_OUT') {
+          console.log("User signed out, clearing user data");
+          setUser(null);
+        } else if (event === 'USER_UPDATED') {
+          console.log("User data updated");
+        }
+      }
+    );
+
+    // Cleanup subscription
+    return () => {
+      console.log("Cleaning up auth listener");
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Log when user state changes
+  useEffect(() => {
+    console.log("User state updated:", user ? `User ${user.email}` : "No user");
+  }, [user]);
+
+  const login = async (email: string, password: string) => {
+    console.log(`Attempting login for ${email}`);
+    return authenticateUser(email, password);
+  };
+
+  const signup = async (email: string, password: string, name?: string, displayName?: string) => {
+    console.log(`Attempting signup for ${email}`);
+    return createUser(email, password, name, displayName);
+  };
+
+  const logout = async () => {
+    console.log("Logging out user");
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out:', error.message);
+    } else {
+      setUser(null);
+    }
+  };
+
+  const updateUserProfile = async (updates: Partial<User>) => {
+    if (!user) {
+      console.error("Cannot update profile: No user is logged in");
+      return;
+    }
+    
+    try {
+      console.log(`Updating user profile for ${user.email}`, updates);
+      
+      // Update display_name if it's being changed
+      if (updates.displayName !== undefined) {
+        const { error } = await supabase
+          .from('users')
+          .update({ 
+            display_name: updates.displayName,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+          
+        if (error) {
+          console.error('Error updating user profile:', error.message);
+          return;
+        }
+      }
+      
+      // Create updated user object
+      const updatedUser = { ...user, ...updates };
+      
+      // Update state
+      setUser(updatedUser);
+      console.log("User profile updated successfully");
+    } catch (error) {
+      console.error('Unexpected error updating user profile:', error);
+    }
+  };
+
+  // Function to update the entire user object
+  const updateUser = (updatedUser: User) => {
+    console.log("Updating user state with new data", { 
+      id: updatedUser.id,
+      email: updatedUser.email,
+      credits: updatedUser.credits
+    });
+    setUser(updatedUser);
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        signup,
+        logout,
+        isLoading,
+        updateUserProfile,
+        updateUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}
+</file>
+
+<file path="lib/auth.ts">
+// Simple auth context for demonstration purposes
+
+import { supabase } from './supabase';
+
+export type User = {
+  id: string;
+  email: string;
+  name?: string;
+  displayName?: string;
+  credits: number;
+};
+
+// User with password for internal use
+type UserWithPassword = {
+  id: string;
+  email: string;
+  password: string;
+  name?: string;
+  displayName?: string;
+  credits: number;
+};
+
+// Dummy user credentials for demonstration
+export const DUMMY_USERS: UserWithPassword[] = [
+  {
+    id: "1",
+    email: "user@example.com",
+    password: "password123",
+    name: "Demo User",
+    displayName: "Demo",
+    credits: 10,
+  },
+];
+
+/**
+ * Authenticates a user with their email and password
+ */
+export async function authenticateUser(email: string, password: string): Promise<User | null> {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      console.error('Authentication error:', error.message);
+      return null;
+    }
+
+    if (!data.user) {
+      return null;
+    }
+
+    // Get user profile data from the users table
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user data:', userError.message);
+      return null;
+    }
+
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      displayName: userData.display_name,
+      credits: userData.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error during authentication:', error);
+    return null;
+  }
+}
+
+/**
+ * Returns user information by email
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  try {
+    // Query the users table by email
+    const { data: authUser, error: authError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+
+    if (authError) {
+      console.error('Error fetching user by email:', authError.message);
+      return null;
+    }
+
+    if (!authUser) {
+      console.log(`No user found with email: ${email}`);
+      return null;
+    }
+
+    return {
+      id: authUser.id,
+      email: authUser.email,
+      displayName: authUser.display_name,
+      credits: authUser.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error fetching user by email:', error);
+    return null;
+  }
+}
+
+/**
+ * Updates user credits
+ */
+export async function updateUserCredits(email: string, newCredits: number): Promise<User | null> {
+  try {
+    // Direct query to update credits by email instead of querying by ID first
+    const { data, error } = await supabase
+      .from('users')
+      .update({ 
+        credits: newCredits, 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('email', email)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error updating user credits:', error.message);
+      return null;
+    }
+
+    if (!data) {
+      console.error('User not found when updating credits for email:', email);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      email: data.email,
+      displayName: data.display_name,
+      credits: data.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error updating user credits:', error);
+    return null;
+  }
+}
+
+/**
+ * Creates a new user
+ */
+export async function createUser(
+  email: string, 
+  password: string, 
+  name?: string, 
+  displayName?: string
+): Promise<User | null> {
+  try {
+    // Create the user in Supabase Auth
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          displayName: displayName || name,
+        },
+      },
+    });
+
+    if (error) {
+      console.error('Error creating user:', error.message);
+      return null;
+    }
+
+    if (!data.user) {
+      return null;
+    }
+
+    // Implementation of retry logic with exponential backoff
+    // This helps with race conditions between auth creation and trigger execution
+    let userData = null;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      
+      // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms, 8000ms
+      const delay = Math.min(500 * Math.pow(2, attempts - 1), 8000);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Try to get the user data
+      const { data: fetchedUser, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', data.user.id)
+        .maybeSingle(); // Use maybeSingle instead of single to avoid the error
+
+      if (userError) {
+        console.log(`Attempt ${attempts} failed: ${userError.message}`);
+        if (attempts === maxAttempts) {
+          console.error('Max attempts reached. Error fetching new user data:', userError.message);
+          return null;
+        }
+        continue; // Try again
+      }
+
+      // If we got user data, break out of the loop
+      if (fetchedUser) {
+        userData = fetchedUser;
+        break;
+      }
+
+      // If no data but also no error, and we haven't reached max attempts, try again
+      console.log(`Attempt ${attempts}: User record not found yet. Retrying...`);
+    }
+
+    // If we couldn't get user data after all attempts
+    if (!userData) {
+      console.error('Could not fetch user data after multiple attempts');
+      
+      // As a fallback, create a minimal user object from auth data
+      return {
+        id: data.user.id,
+        email: data.user.email!,
+        displayName: displayName || name,
+        credits: 10, // Default credits
+      };
+    }
+
+    return {
+      id: data.user.id,
+      email: data.user.email!,
+      displayName: userData.display_name,
+      credits: userData.credits,
+    };
+  } catch (error) {
+    console.error('Unexpected error creating user:', error);
+    return null;
+  }
+}
+</file>
+
+<file path="actions/summarize-video.ts">
+"use server"
+
+import { extractVideoId } from "@/lib/youtube-utils"
+import { fetchTranscript, TranscriptSourceType } from "@/lib/transcript-fetcher"
+import { generateSummary, StructuredSummary } from "@/lib/openai-utils"
+import { getUserByEmail, updateUserCredits } from "@/lib/auth"
+import { supabase } from "@/lib/supabase"
+
+// Define the return type for the summarizeYouTubeVideo function
+type SummarizeResult = {
+  structuredSummary?: StructuredSummary;
+  error?: string;
+  videoId?: string;
+  videoTitle?: string;
+  transcriptSource?: TranscriptSourceType;
+  remainingCredits?: number;
+  status?: string;
+}
+
+export async function summarizeYouTubeVideo(formData: FormData): Promise<SummarizeResult> {
+  const startTime = Date.now();
+  console.log(`[${new Date().toISOString()}] SERVER ACTION START: summarizeYouTubeVideo`);
+  
+  const youtubeUrl = formData.get("youtubeUrl") as string
+  const userEmail = formData.get("userEmail") as string
+  const userId = formData.get("userId") as string
+
+  console.log(`[${new Date().toISOString()}] Summarize request details:`, {
+    youtubeUrlPrefix: youtubeUrl ? youtubeUrl.substring(0, 30) + '...' : 'MISSING',
+    userEmail: userEmail || 'MISSING',
+    userId: userId || 'MISSING'
+  });
+
+  // Step 1: Validate YouTube URL and user
+  if (!youtubeUrl) {
+    console.log(`[${new Date().toISOString()}] Error: No YouTube URL provided`);
+    return { error: "Please enter a YouTube URL" }
+  }
+  
+  if (!userEmail || !userId) {
+    console.log(`[${new Date().toISOString()}] Error: Missing user information`, {
+      userEmail: Boolean(userEmail),
+      userId: Boolean(userId)
+    });
+    return { error: "You must be logged in to summarize videos" }
+  }
+  
+  // Verify current auth session
+  try {
+    console.log(`[${new Date().toISOString()}] Verifying auth session`);
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData && sessionData.session) {
+      console.log(`[${new Date().toISOString()}] Auth session found:`, {
+        authUserId: sessionData.session.user.id,
+        authUserEmail: sessionData.session.user.email,
+        matchesProvidedId: sessionData.session.user.id === userId,
+        matchesProvidedEmail: sessionData.session.user.email === userEmail,
+      });
+    } else {
+      console.log(`[${new Date().toISOString()}] No active auth session found`);
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Error checking auth session:`, err);
+  }
+  
+  // First, try to find the user by their ID (most reliable)
+  try {
+    console.log(`[${new Date().toISOString()}] Looking up user by ID: ${userId}`);
+    const { data: userData, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle()
+      
+    if (error) {
+      console.error(`[${new Date().toISOString()}] Database error when fetching user by ID:`, error);
+    } else if (userData) {
+      console.log(`[${new Date().toISOString()}] User found by ID:`, {
+        id: userData.id,
+        email: userData.email,
+        display_name: userData.display_name,
+        credits: userData.credits,
+        timestamps: {
+          created_at: userData.created_at,
+          updated_at: userData.updated_at
+        }
+      });
+      
+      // Use the user data from direct lookup
+      if (userData.credits <= 0) {
+        console.log(`[${new Date().toISOString()}] User has insufficient credits:`, userData.credits);
+        return { error: "You don't have enough credits. Please purchase more credits." }
+      }
+      
+      // If we found the user by ID, proceed with summarization
+      console.log(`[${new Date().toISOString()}] Proceeding with summarization for user found by ID`);
+      return await generateSummaryForUser(youtubeUrl, userData, userId)
+    } else {
+      console.log(`[${new Date().toISOString()}] No user found with ID: ${userId}`);
+      
+      // Debug query - check if this user exists in auth but not in the users table
+      try {
+        const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
+        console.log(`[${new Date().toISOString()}] Auth user lookup result:`, {
+          found: Boolean(authUser?.user),
+          error: authError ? authError.message : null,
+          userId: authUser?.user?.id,
+          userEmail: authUser?.user?.email,
+        });
+      } catch (authLookupErr) {
+        console.error(`[${new Date().toISOString()}] Error looking up auth user:`, authLookupErr);
+      }
+      
+      // Check if the users table exists and has records
+      try {
+        const { data: tableInfo, error: tableError } = await supabase
+          .from('users')
+          .select('count')
+          .limit(1);
+          
+        console.log(`[${new Date().toISOString()}] Users table check:`, {
+          tableExists: !tableError,
+          error: tableError ? tableError.message : null,
+          hasRecords: tableInfo && tableInfo.length > 0
+        });
+        
+        // Debug - check what records exist in the users table
+        const { data: userRecords, error: recordsError } = await supabase
+          .from('users')
+          .select('id, email')
+          .limit(5);
+          
+        console.log(`[${new Date().toISOString()}] Sample user records:`, {
+          error: recordsError ? recordsError.message : null,
+          count: userRecords ? userRecords.length : 0,
+          samples: userRecords ? userRecords.map(u => ({ id: u.id, email: u.email })) : []
+        });
+      } catch (tableErr) {
+        console.error(`[${new Date().toISOString()}] Error checking users table:`, tableErr);
+      }
+    }
+  } catch (err) {
+    console.error(`[${new Date().toISOString()}] Unexpected error looking up user by ID:`, err);
+  }
+  
+  // If user lookup by ID failed, try falling back to email
+  console.log(`[${new Date().toISOString()}] Falling back to email lookup for: ${userEmail}`);
+  try {
+    // Direct database query to check user by email
+    const { data: emailUser, error: emailError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', userEmail)
+      .maybeSingle();
+      
+    if (emailError) {
+      console.error(`[${new Date().toISOString()}] Error in direct email lookup:`, emailError);
+    } else if (emailUser) {
+      console.log(`[${new Date().toISOString()}] User found directly by email:`, {
+        id: emailUser.id, 
+        email: emailUser.email,
+        idMatch: emailUser.id === userId
+      });
+      
+      if (emailUser.credits <= 0) {
+        return { error: "You don't have enough credits. Please purchase more credits." }
+      }
+      
+      return await generateSummaryForUser(youtubeUrl, emailUser, emailUser.id);
+    } else {
+      console.log(`[${new Date().toISOString()}] No user found by direct email lookup`);
+    }
+  } catch (directEmailErr) {
+    console.error(`[${new Date().toISOString()}] Error in direct email query:`, directEmailErr);
+  }
+  
+  // Fall back to the helper function
+  const user = await getUserByEmail(userEmail)
+  console.log(`[${new Date().toISOString()}] getUserByEmail result:`, {
+    found: Boolean(user),
+    id: user?.id,
+    email: user?.email,
+    credits: user?.credits
+  });
+  
+  if (!user) {
+    console.log(`[${new Date().toISOString()}] User not found by any method. Attempting to repair...`);
+    
+    // If we can't find the user by any method, try to verify and create
+    try {
+      console.log(`[${new Date().toISOString()}] Fetching auth user data for repair`);
+      
+      // Verify this is a real authenticated user
+      const { data: authData } = await supabase.auth.getUser()
+      console.log(`[${new Date().toISOString()}] Auth user data for repair:`, {
+        found: Boolean(authData?.user),
+        id: authData?.user?.id,
+        email: authData?.user?.email,
+        matchesId: authData?.user?.id === userId,
+        matchesEmail: authData?.user?.email === userEmail
+      });
+      
+      if (!authData || !authData.user || authData.user.id !== userId) {
+        console.log(`[${new Date().toISOString()}] Auth verification failed`);
+        return { error: "Session verification failed. Please log out and log back in." }
+      }
+      
+      // Create the missing user record
+      console.log(`[${new Date().toISOString()}] Attempting to create user record for:`, {
+        id: userId,
+        email: userEmail
+      });
+      
+      const { data: newUserData, error: createError } = await supabase
+        .from('users')
+        .insert([
+          { 
+            id: userId,
+            email: userEmail,
+            display_name: authData.user.user_metadata?.displayName || null,
+            credits: 10, // Default starting credits
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ])
+        .select()
+        .maybeSingle()
+        
+      if (createError) {
+        console.error(`[${new Date().toISOString()}] Failed to create user record:`, createError);
+        return { error: "Could not create your user profile. Please contact support." }
+      }
+      
+      if (newUserData) {
+        console.log(`[${new Date().toISOString()}] Successfully created user record:`, {
+          id: newUserData.id,
+          email: newUserData.email,
+          credits: newUserData.credits
+        });
+        return await generateSummaryForUser(youtubeUrl, newUserData, userId)
+      } else {
+        console.log(`[${new Date().toISOString()}] No user data returned after insert`);
+        return { error: "Could not initialize your account. Please try again later." }
+      }
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] Error creating user record:`, error);
+      return { error: "An unexpected error occurred. Please try logging out and back in." }
+    }
+  }
+  
+  console.log(`[${new Date().toISOString()}] User found with helper function:`, {
+    id: user.id,
+    email: user.email,
+    credits: user.credits,
+    idMatch: user.id === userId
+  });
+  
+  if (user.credits <= 0) {
+    return { error: "You don't have enough credits. Please purchase more credits." }
+  }
+
+  // Use the standard flow with the found user
+  const result = await generateSummaryForUser(youtubeUrl, user, user.id);
+  
+  const totalTime = Date.now() - startTime;
+  console.log(`[${new Date().toISOString()}] SERVER ACTION COMPLETE in ${totalTime}ms`);
+  
+  return result;
+}
+
+// Helper function to generate summary for a valid user
+async function generateSummaryForUser(
+  youtubeUrl: string, 
+  user: any, 
+  userId: string
+): Promise<SummarizeResult> {
+  console.log(`[${new Date().toISOString()}] Starting summary generation for user:`, {
+    id: userId,
+    credits: user.credits
+  });
+  
+  // Extract video ID
+  const videoId = extractVideoId(youtubeUrl)
+  if (!videoId) {
+    console.log(`[${new Date().toISOString()}] Invalid YouTube URL:`, youtubeUrl.substring(0, 30));
+    return { error: "Please enter a valid YouTube URL" }
+  }
+  
+  console.log(`[${new Date().toISOString()}] Extracted video ID:`, videoId);
+
+  try {
+    // Fetch transcript using the tier-based system
+    console.log(`[${new Date().toISOString()}] Fetching transcript for video:`, videoId);
+    const { transcript, videoTitle, transcriptSource } = await fetchTranscript(videoId)
+
+    if (!transcript) {
+      console.log(`[${new Date().toISOString()}] No transcript available for video:`, videoId);
+      return { error: "Transcript not available for this video" }
+    }
+
+    // Log transcript length and source for debugging
+    console.log(`[${new Date().toISOString()}] Transcript fetched:`, {
+      length: transcript.length,
+      source: transcriptSource,
+      title: videoTitle
+    });
+
+    // Generate structured summary with sections and timestamps
+    console.log(`[${new Date().toISOString()}] Generating summary`);
+    const structuredSummary = await generateSummary(transcript)
+
+    if (!structuredSummary || !structuredSummary.overallSummary) {
+      console.log(`[${new Date().toISOString()}] Failed to generate summary`);
+      return { error: "Unable to generate summary. Please try again later" }
+    }
+    
+    console.log(`[${new Date().toISOString()}] Summary generated successfully:`, {
+      summaryLength: structuredSummary.overallSummary.length,
+      sections: structuredSummary.sections.length
+    });
+
+    // Save the summary to the summaries table
+    console.log(`[${new Date().toISOString()}] Saving summary to database:`, {
+      userId,
+      videoId,
+      title: videoTitle
+    });
+    
+    try {
+      const { data: savedSummary, error: saveSummaryError } = await supabase
+        .from('summaries')
+        .insert([
+          {
+            user_id: userId,
+            video_id: videoId,
+            video_title: videoTitle || 'Untitled Video',
+            summary_data: structuredSummary
+          }
+        ])
+        .select()
+        .maybeSingle();
+        
+      if (saveSummaryError) {
+        console.error(`[${new Date().toISOString()}] Error saving summary:`, saveSummaryError);
+        // Continue with the flow even if saving fails
+      } else {
+        console.log(`[${new Date().toISOString()}] Summary saved successfully with ID:`, savedSummary?.id);
+      }
+    } catch (saveSummaryErr) {
+      console.error(`[${new Date().toISOString()}] Unexpected error saving summary:`, saveSummaryErr);
+      // Continue with the flow even if saving fails
+    }
+
+    // Deduct 1 credit from the user's account
+    console.log(`[${new Date().toISOString()}] Updating credits:`, {
+      userId,
+      email: user.email,
+      from: user.credits,
+      to: user.credits - 1
+    });
+    
+    // Update credits directly in the database
+    const { data: updatedUserData, error: updateError } = await supabase
+      .from('users')
+      .update({ 
+        credits: user.credits - 1,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .maybeSingle()
+      
+    if (updateError) {
+      console.error(`[${new Date().toISOString()}] Error updating user credits:`, updateError);
+      return { error: "Failed to update user credits" }
+    }
+    
+    let remainingCredits = user.credits - 1; // Default to the expected value
+    
+    if (!updatedUserData) {
+      console.log(`[${new Date().toISOString()}] No data returned from credits update, checking if update was applied...`);
+      
+      // Try to verify if the update was successful by fetching the current record
+      try {
+        const { data: refreshedUser, error: refreshError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .maybeSingle();
+          
+        if (refreshError) {
+          console.error(`[${new Date().toISOString()}] Error fetching updated user:`, refreshError);
+        } else if (refreshedUser) {
+          console.log(`[${new Date().toISOString()}] Fetched updated user data:`, {
+            credits: refreshedUser.credits,
+            expectedCredits: user.credits - 1,
+            updated: refreshedUser.updated_at
+          });
+          
+          // Use the fetched credits value
+          remainingCredits = refreshedUser.credits;
+          
+          // Log success message
+          console.log(`[${new Date().toISOString()}] Credits updated successfully (verified by fetch):`, {
+            newCredits: remainingCredits
+          });
+        } else {
+          console.log(`[${new Date().toISOString()}] Could not verify credit update, proceeding with expected value:`, remainingCredits);
+        }
+      } catch (refreshErr) {
+        console.error(`[${new Date().toISOString()}] Unexpected error fetching updated user:`, refreshErr);
+      }
+    } else {
+      // Use the returned credits value from the update
+      remainingCredits = updatedUserData.credits;
+      console.log(`[${new Date().toISOString()}] Credits updated successfully:`, {
+        newCredits: remainingCredits
+      });
+    }
+    
+    // Return the result with transcript source information, structured summary, and remaining credits
+    console.log(`[${new Date().toISOString()}] Returning successful result with ${remainingCredits} credits remaining`);
+    return {
+      structuredSummary,
+      videoId,
+      videoTitle,
+      transcriptSource,
+      remainingCredits,
+    }
+  } catch (error: any) {
+    console.error(`[${new Date().toISOString()}] Error in generateSummaryForUser:`, error);
+    return handleSummarizeError(error)
+  }
+}
+
+function handleSummarizeError(error: any): SummarizeResult {
+  console.log(`[${new Date().toISOString()}] Handling specific error:`, error.message || 'No error message');
+  
+  // Handle specific error types
+  if (error.message === "TRANSCRIPT_NOT_AVAILABLE") {
+    return { error: "Transcript not available for this video. The video may not have captions enabled." }
+  } else if (error.message === "YOUTUBE_API_ERROR") {
+    return { error: "Unable to retrieve video information. Please check the YouTube API key and try again later." }
+  } else if (error.message === "OPENAI_API_ERROR") {
+    return { error: "Unable to generate summary. Please check the OpenAI API key and try again later." }
+  } else if (error.message === "NETWORK_ERROR") {
+    return { error: "Network error. Please check your connection and try again." }
+  } else if (error.message === "VIDEO_NOT_FOUND") {
+    return { error: "The video could not be found. Please check the URL and try again." }
+  }
+
+  return { error: "An unexpected error occurred. Please try again." }
 }
 </file>
 

@@ -7,7 +7,16 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'img.youtube.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'i.ytimg.com',
+      }
+    ]
   },
   env: {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -15,9 +24,6 @@ const nextConfig = {
   },
   reactStrictMode: true,
   swcMinify: true,
-  images: {
-    domains: ['i.ytimg.com', 'img.youtube.com'],
-  },
 }
 
 export default nextConfig

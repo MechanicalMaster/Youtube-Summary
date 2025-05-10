@@ -4,11 +4,14 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/components/auth-provider";
-import { VideoSummarizerForm } from "@/components/video-summarizer-form";
 import { Button } from "@/components/ui/button";
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, History, Home } from "lucide-react";
 
-export default function DashboardPage() {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { user, logout, isLoading } = useAuth();
   const router = useRouter();
 
@@ -40,7 +43,31 @@ export default function DashboardPage() {
     <main className="min-h-screen flex flex-col bg-gray-50">
       <header className="bg-white shadow-sm py-4">
         <div className="container mx-auto px-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold">YouTube Summarizer</h1>
+          <div className="flex items-center">
+            <h1 className="text-xl font-bold">YouTube Summarizer</h1>
+            <nav className="ml-8">
+              <ul className="flex space-x-4">
+                <li>
+                  <Link 
+                    href="/dashboard" 
+                    className="flex items-center text-sm px-3 py-2 rounded-md hover:bg-gray-100"
+                  >
+                    <Home className="h-4 w-4 mr-2" />
+                    Dashboard
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    href="/history" 
+                    className="flex items-center text-sm px-3 py-2 rounded-md hover:bg-gray-100"
+                  >
+                    <History className="h-4 w-4 mr-2" />
+                    History
+                  </Link>
+                </li>
+              </ul>
+            </nav>
+          </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center">
               <span className="text-sm text-gray-600 mr-4">
@@ -67,13 +94,8 @@ export default function DashboardPage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="bg-white p-6 rounded-lg shadow-sm">
-            <h2 className="text-lg font-medium mb-4">Generate Video Summary</h2>
-            <VideoSummarizerForm />
-          </div>
-        </div>
+        {children}
       </div>
     </main>
   );
-}
+} 
