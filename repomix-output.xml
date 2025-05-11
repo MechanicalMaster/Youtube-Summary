@@ -121,6 +121,7 @@ components/
     use-toast.ts
   auth-provider.tsx
   custom-pagination.tsx
+  settings.tsx
   theme-provider.tsx
   video-summarizer-form.tsx
 hooks/
@@ -140,10 +141,12 @@ styles/
   globals.css
 .gitignore
 components.json
+delete.md
 history.md
 next.config.mjs
 package.json
 postcss.config.mjs
+settings.md
 supabase.md
 tailwind.config.ts
 tsconfig.json
@@ -255,243 +258,6 @@ export default function DashboardPage() {
         <h2 className="text-lg font-medium mb-4">Generate Video Summary</h2>
         <VideoSummarizerForm />
       </div>
-    </div>
-  );
-}
-</file>
-
-<file path="app/(dashboard)/history/page.tsx">
-"use client";
-
-import { useState, useEffect } from "react";
-import { useAuth } from "@/components/auth-provider";
-import { fetchUserSummaries } from "@/lib/supabase";
-import { SummaryTile } from "@/components/ui/summary-tile";
-import { CustomPagination } from "@/components/custom-pagination";
-import { deleteSummary } from "@/actions/delete-summary";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Loader2 } from "lucide-react";
-
-export default function HistoryPage() {
-  const { user } = useAuth();
-  const [summaries, setSummaries] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [totalPages, setTotalPages] = useState(1);
-  const [currentPage, setCurrentPage] = useState(1);
-  const limit = 12; // Number of summaries per page
-  
-  // Delete confirmation state
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [summaryToDelete, setSummaryToDelete] = useState<{ id: string; title: string } | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  useEffect(() => {
-    console.log("History page useEffect triggered", { 
-      userExists: !!user,
-      userId: user?.id,
-      currentPage
-    });
-    
-    if (user?.id) {
-      loadSummaries(user.id, currentPage);
-    }
-  }, [user, currentPage]);
-
-  const loadSummaries = async (userId: string, page: number) => {
-    console.log("Loading summaries...", { userId, page, limit });
-    setLoading(true);
-    setError(null);
-    
-    try {
-      console.log("Fetching summaries from Supabase...");
-      const { summaries, error, count } = await fetchUserSummaries(userId, page, limit);
-      
-      console.log("Fetch result:", { 
-        success: !error, 
-        errorMessage: error?.message, 
-        summariesCount: summaries?.length || 0,
-        totalCount: count
-      });
-      
-      if (error) {
-        throw new Error(error.message);
-      }
-      
-      console.log("Summaries data:", summaries);
-      setSummaries(summaries || []);
-      
-      // Calculate total pages
-      const total = Math.ceil((count || 0) / limit);
-      console.log("Pagination info:", { total, currentPage });
-      setTotalPages(total || 1);
-    } catch (err: any) {
-      console.error("Error fetching summaries:", err);
-      setError(err.message || "Failed to load summaries");
-      setSummaries([]);
-    } finally {
-      console.log("Finished loading summaries");
-      setLoading(false);
-    }
-  };
-
-  const handlePageChange = (page: number) => {
-    console.log("Page changed to:", page);
-    setCurrentPage(page);
-  };
-  
-  const handleDeleteClick = (id: string, title: string) => {
-    console.log("Delete clicked for summary:", { id, title });
-    setSummaryToDelete({ id, title });
-    setIsDeleteDialogOpen(true);
-  };
-  
-  const handleDeleteConfirm = async () => {
-    if (!summaryToDelete || !user) return;
-    
-    console.log("Confirming deletion of summary:", summaryToDelete.id);
-    setIsDeleting(true);
-    setDeleteError(null);
-    
-    try {
-      const result = await deleteSummary(summaryToDelete.id, user.id);
-      
-      if (result.success) {
-        console.log("Summary deleted successfully");
-        // Remove the deleted summary from the state
-        setSummaries(summaries.filter(summary => summary.id !== summaryToDelete.id));
-        
-        // If we deleted the last item on the page and it's not the first page, go to previous page
-        if (summaries.length === 1 && currentPage > 1) {
-          setCurrentPage(prev => prev - 1);
-        }
-      } else {
-        console.error("Error deleting summary:", result.error);
-        setDeleteError(result.error || "Failed to delete summary");
-      }
-    } catch (err: any) {
-      console.error("Unexpected error in deletion:", err);
-      setDeleteError(err.message || "An unexpected error occurred");
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteDialogOpen(false);
-      setSummaryToDelete(null);
-    }
-  };
-  
-  const handleDeleteCancel = () => {
-    setIsDeleteDialogOpen(false);
-    setSummaryToDelete(null);
-  };
-
-  console.log("Rendering history page", { 
-    user: !!user, 
-    loading, 
-    error, 
-    summariesCount: summaries.length,
-    currentPage,
-    totalPages
-  });
-
-  if (!user) {
-    return <div className="text-center py-12">Please log in to view your history.</div>;
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Your Summary History</h1>
-      
-      {deleteError && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertDescription>{deleteError}</AlertDescription>
-        </Alert>
-      )}
-      
-      {loading ? (
-        <div className="h-64 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-        </div>
-      ) : error ? (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
-        </div>
-      ) : summaries.length === 0 ? (
-        <div className="bg-white p-8 rounded-lg shadow-sm text-center">
-          <h3 className="text-lg mb-2">No summaries yet</h3>
-          <p className="text-gray-500">
-            You haven't created any summaries yet. Go to the dashboard to summarize a YouTube video.
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {summaries.map((summary) => (
-              <SummaryTile
-                key={summary.id}
-                id={summary.id}
-                videoId={summary.video_id}
-                videoTitle={summary.video_title}
-                summaryData={summary.summary_data}
-                createdAt={summary.created_at}
-                onDelete={handleDeleteClick}
-              />
-            ))}
-          </div>
-          
-          {totalPages > 1 && (
-            <div className="mt-8 flex justify-center">
-              <CustomPagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
-              />
-            </div>
-          )}
-        </>
-      )}
-      
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete the summary for '{summaryToDelete?.title}'?
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleDeleteCancel} disabled={isDeleting}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteConfirm}
-              disabled={isDeleting}
-              className="bg-red-500 hover:bg-red-600 focus:ring-red-500"
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
@@ -5335,99 +5101,6 @@ const Toaster = ({ ...props }: ToasterProps) => {
 export { Toaster }
 </file>
 
-<file path="components/ui/summary-tile.tsx">
-import React, { useState } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
-import { formatDistanceToNow } from 'date-fns';
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
-import { StructuredSummary } from '@/lib/openai-utils';
-import { FileVideo, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-
-interface SummaryTileProps {
-  id: string;
-  videoId: string;
-  videoTitle: string;
-  summaryData: StructuredSummary;
-  createdAt: string;
-  onDelete?: (id: string, title: string) => void;
-}
-
-export function SummaryTile({ 
-  id, 
-  videoId, 
-  videoTitle, 
-  summaryData, 
-  createdAt,
-  onDelete 
-}: SummaryTileProps) {
-  const [imgError, setImgError] = useState(false);
-  
-  // Format date as "3 days ago" or similar
-  const formattedDate = formatDistanceToNow(new Date(createdAt), { addSuffix: true });
-  
-  // Truncate summary to 120 characters
-  const truncatedSummary = summaryData.overallSummary.length > 120 
-    ? `${summaryData.overallSummary.substring(0, 120)}...` 
-    : summaryData.overallSummary;
-  
-  // YouTube thumbnail URL
-  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
-  
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent navigation
-    if (onDelete) {
-      onDelete(id, videoTitle);
-    }
-  };
-  
-  return (
-    <Link href={`/summary/${id}`} className="block relative group">
-      <Card className="h-full overflow-hidden hover:shadow-md transition-shadow duration-200">
-        {onDelete && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white/90"
-            onClick={handleDelete}
-            title="Delete summary"
-          >
-            <Trash2 className="h-4 w-4 text-red-500" />
-          </Button>
-        )}
-        <div className="aspect-video relative bg-gray-100">
-          {imgError ? (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <FileVideo className="h-12 w-12 text-gray-400" />
-            </div>
-          ) : (
-            <Image 
-              src={thumbnailUrl} 
-              alt={videoTitle}
-              fill
-              className="object-cover"
-              onError={() => setImgError(true)}
-            />
-          )}
-        </div>
-        <CardHeader className="p-4 pb-2">
-          <h3 className="font-semibold text-lg line-clamp-1">{videoTitle}</h3>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <p className="text-sm text-muted-foreground line-clamp-3">{truncatedSummary}</p>
-        </CardContent>
-        <CardFooter className="p-4 pt-0 text-xs text-muted-foreground">
-          {formattedDate}
-        </CardFooter>
-      </Card>
-    </Link>
-  );
-}
-
-export default SummaryTile;
-</file>
-
 <file path="components/ui/switch.tsx">
 "use client"
 
@@ -6308,6 +5981,404 @@ export function CustomPagination({
 export default CustomPagination;
 </file>
 
+<file path="components/settings.tsx">
+"use client";
+
+import { useState } from "react";
+import { useAuth } from "./auth-provider";
+import { UserSettings } from "@/lib/supabase";
+import { useTheme } from "next-themes";
+import { Trash2, Download, ArrowUpRight, Lightbulb, Bug, HelpCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+
+export function Settings() {
+  const { user, updateSettings } = useAuth();
+  const { setTheme } = useTheme();
+  
+  // State for form submissions
+  const [featureRequest, setFeatureRequest] = useState("");
+  const [bugReport, setBugReport] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formSubmitted, setFormSubmitted] = useState(false);
+  
+  // Get user settings or use defaults
+  const settings = user?.settings || {
+    mode: "system",
+    default_action: "concise_summary",
+    search_language: "English"
+  };
+  
+  // Handle settings changes
+  const handleModeChange = async (value: string) => {
+    if (!user) return;
+    
+    // Update theme in the UI immediately
+    setTheme(value);
+    
+    // Update settings in the database
+    await updateSettings({ mode: value as "dark" | "system" | "light" });
+  };
+  
+  const handleDefaultActionChange = async (value: string) => {
+    if (!user) return;
+    await updateSettings({ 
+      default_action: value as "open_reader" | "concise_summary" | "detailed_summary" 
+    });
+  };
+  
+  const handleSearchLanguageChange = async (value: string) => {
+    if (!user) return;
+    await updateSettings({ search_language: value });
+  };
+  
+  // Handle form submissions
+  const handleFeatureRequestSubmit = () => {
+    if (!featureRequest.trim()) return;
+    
+    setIsSubmitting(true);
+    
+    // Log the feature request (in a real implementation, this would send to a backend service)
+    console.log("Feature request submitted:", featureRequest);
+    
+    // Simulate API call
+    setTimeout(() => {
+      setIsSubmitting(false);
+      setFormSubmitted(true);
+      setFeatureRequest("");
+      
+      // Reset success message after a delay
+      setTimeout(() => setFormSubmitted(false), 3000);
+    }, 1000);
+  };
+  
+  const handleBugReportSubmit = () => {
+    if (!bugReport.trim()) return;
+    
+    setIsSubmitting(true);
+    
+    // Log the bug report (in a real implementation, this would send to a backend service)
+    console.log("Bug report submitted:", bugReport);
+    
+    // Simulate API call
+    setTimeout(() => {
+      setIsSubmitting(false);
+      setFormSubmitted(true);
+      setBugReport("");
+      
+      // Reset success message after a delay
+      setTimeout(() => setFormSubmitted(false), 3000);
+    }, 1000);
+  };
+  
+  // Handle data export
+  const handleExportData = () => {
+    console.log("Export data requested - this would generate a markdown file of the user's summaries");
+    // This would call the exportSummaries action in a real implementation
+  };
+  
+  // Handle account deletion
+  const handleDeleteAccount = () => {
+    console.log("Account deletion requested - this would call the deleteAccount action");
+    // This would call the deleteAccount action in a real implementation
+  };
+  
+  if (!user) {
+    return <div>Please log in to access settings</div>;
+  }
+  
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Display Settings</CardTitle>
+          <CardDescription>Customize how the app looks and behaves</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="mode">Theme Mode</Label>
+              <Select
+                value={settings.mode}
+                onValueChange={handleModeChange}
+              >
+                <SelectTrigger id="mode" className="w-full">
+                  <SelectValue placeholder="Select mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="system">System</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="default-action">Default Action</Label>
+              <Select
+                value={settings.default_action}
+                onValueChange={handleDefaultActionChange}
+              >
+                <SelectTrigger id="default-action" className="w-full">
+                  <SelectValue placeholder="Select default action" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open_reader">Open Reader</SelectItem>
+                  <SelectItem value="concise_summary">Concise Summary</SelectItem>
+                  <SelectItem value="detailed_summary">Detailed Summary</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="search-language">Search Language</Label>
+            <Select
+              value={settings.search_language}
+              onValueChange={handleSearchLanguageChange}
+            >
+              <SelectTrigger id="search-language" className="w-full">
+                <SelectValue placeholder="Select language" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="English">English</SelectItem>
+                <SelectItem value="Spanish">Spanish</SelectItem>
+                <SelectItem value="French">French</SelectItem>
+                <SelectItem value="German">German</SelectItem>
+                <SelectItem value="Chinese">Chinese</SelectItem>
+                <SelectItem value="Japanese">Japanese</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Data Management</CardTitle>
+          <CardDescription>Export your data or upgrade your account</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={handleExportData}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export Summaries
+            </Button>
+            
+            <Button className="w-full">
+              <ArrowUpRight className="mr-2 h-4 w-4" />
+              Upgrade to Plus
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Help & Feedback</CardTitle>
+          <CardDescription>Request features, report bugs, or get help</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="w-full">
+                  <Lightbulb className="mr-2 h-4 w-4" />
+                  Feature Request
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Request a Feature</DialogTitle>
+                  <DialogDescription>
+                    Let us know what features you'd like to see added to the app.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <Textarea
+                    placeholder="Describe the feature you'd like to see..."
+                    value={featureRequest}
+                    onChange={(e) => setFeatureRequest(e.target.value)}
+                    className="min-h-[100px]"
+                  />
+                </div>
+                <DialogFooter>
+                  {formSubmitted ? (
+                    <div className="text-green-600">Thanks for your feedback!</div>
+                  ) : (
+                    <Button 
+                      type="submit" 
+                      onClick={handleFeatureRequestSubmit}
+                      disabled={isSubmitting || !featureRequest.trim()}
+                    >
+                      {isSubmitting ? "Submitting..." : "Submit Request"}
+                    </Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="w-full">
+                  <Bug className="mr-2 h-4 w-4" />
+                  Report a Bug
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Report a Bug</DialogTitle>
+                  <DialogDescription>
+                    Let us know about any issues you've encountered.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <Textarea
+                    placeholder="Describe the bug and how to reproduce it..."
+                    value={bugReport}
+                    onChange={(e) => setBugReport(e.target.value)}
+                    className="min-h-[100px]"
+                  />
+                </div>
+                <DialogFooter>
+                  {formSubmitted ? (
+                    <div className="text-green-600">Thanks for your report!</div>
+                  ) : (
+                    <Button 
+                      type="submit" 
+                      onClick={handleBugReportSubmit}
+                      disabled={isSubmitting || !bugReport.trim()}
+                    >
+                      {isSubmitting ? "Submitting..." : "Submit Report"}
+                    </Button>
+                  )}
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="w-full">
+                  <HelpCircle className="mr-2 h-4 w-4" />
+                  FAQ
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Frequently Asked Questions</DialogTitle>
+                  <DialogDescription>
+                    Find answers to common questions about the app.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div>
+                    <h3 className="text-sm font-medium">How do credits work?</h3>
+                    <p className="text-sm text-muted-foreground">
+                      You get 10 credits by default. Each summary costs 1 credit. You can get more credits by upgrading to Plus.
+                    </p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <h3 className="text-sm font-medium">Can I summarize any YouTube video?</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Yes, as long as the video has captions or transcripts available.
+                    </p>
+                  </div>
+                  <Separator />
+                  <div>
+                    <h3 className="text-sm font-medium">How can I delete my account?</h3>
+                    <p className="text-sm text-muted-foreground">
+                      You can delete your account from the Account section in the settings page.
+                    </p>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+          <CardDescription>Manage your account settings</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="w-full sm:w-auto">
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Account
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action cannot be undone. This will permanently delete your account
+                  and remove all your data from our servers.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700"
+                  onClick={handleDeleteAccount}
+                >
+                  Delete Account
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+</file>
+
 <file path="components/theme-provider.tsx">
 'use client'
 
@@ -6961,6 +7032,63 @@ next-env.d.ts
 }
 </file>
 
+<file path="delete.md">
+#### Implementation Plan
+
+1. **Add a Delete Button to the SummaryTile Component**
+   - Modify the `SummaryTile` component to include a "Delete" button on each tile. The button should be styled to match the existing UI (e.g., using the `Button` component with a subtle variant like `ghost` or `outline`).
+   - Ensure the button is visually integrated with the tile's design, possibly positioned in the top-right corner for consistency with modern UI patterns.
+   - **Files Impacted**:
+     - `components/ui/summary-tile.tsx`: Add the "Delete" button to the JSX structure of the `SummaryTile` component.
+
+2. **Integrate the AlertDialog Component for Confirmation**
+   - Use the existing `AlertDialog` component to create a confirmation pop-up when the "Delete" button is clicked.
+   - The pop-up should display the message: "Are you sure you want to delete the summary for '{videoTitle}'?" with "Cancel" and "Delete" buttons.
+   - Add state management in the `SummaryTile` component to control the visibility of the pop-up (e.g., using a `useState` hook to track whether the dialog is open).
+   - **Files Impacted**:
+     - `components/ui/summary-tile.tsx`: Import the `AlertDialog` components and add the confirmation dialog logic.
+
+3. **Create a Server Action to Handle Deletion**
+   - Create a new server action (e.g., `deleteSummary`) to handle the deletion of a summary from the Supabase database.
+   - The action should:
+     - Verify that the summary belongs to the current user by comparing `user_id` with the authenticated user's ID.
+     - Delete the summary from the `summaries` table using `supabaseAdmin` (to bypass RLS, as done in `actions/summarize-video.ts`).
+     - Include logging for the deletion event (similar to the logging in `actions/summarize-video.ts`).
+   - Return a success or error response to the client.
+   - **Files Impacted**:
+     - Create a new file `actions/delete-summary.ts`: Define the `deleteSummary` server action.
+
+4. **Update the HistoryPage to Handle Deletion and Refresh**
+   - In the `HistoryPage` component, add a function to handle the deletion of a summary by calling the `deleteSummary` server action.
+   - After a successful deletion, update the `summaries` state to remove the deleted summary, which will automatically refresh the UI (since the UI is driven by the `summaries` state).
+   - If the deletion fails, display an error message using the existing `Alert` component (similar to how errors are handled in `HistoryPage`).
+   - **Files Impacted**:
+     - `app/(dashboard)/history/page.tsx`: Add the deletion handler and update the state after deletion.
+
+5. **Add Permission Check in the Server Action**
+   - In the `deleteSummary` server action, enforce that only the user who created the summary can delete it by comparing the `user_id` of the summary with the authenticated user's ID (similar to the check in `app/(dashboard)/summary/[id]/page.tsx`).
+   - Log the permission check result for debugging purposes.
+   - **Files Impacted**:
+     - `actions/delete-summary.ts`: Add the permission check logic.
+
+6. **Add Logging for Deletion Events**
+   - Add detailed logging in the `deleteSummary` server action to track the deletion request, permission check, and outcome (success or failure).
+   - Follow the logging pattern used in `actions/summarize-video.ts` (e.g., logging timestamps, user details, and operation details).
+   - **Files Impacted**:
+     - `actions/delete-summary.ts`: Add logging statements.
+
+#### Configuration or Database Migrations
+- **No Database Migrations Required**: The deletion operation will simply remove a record from the `summaries` table, and there are no cascading effects to consider (as confirmed).
+- **No Configuration Changes Required**: The existing Supabase setup (`supabaseAdmin`) already supports the necessary permissions to delete records while bypassing RLS.
+
+#### Additional Notes
+- The implementation will reuse existing UI components (`Button`, `AlertDialog`, `Alert`) to maintain consistency with the current UX/UI.
+- The automatic UI refresh will be handled by updating the `summaries` state in `HistoryPage`, ensuring a seamless user experience.
+- The permission check ensures security by restricting deletion to the summary owner, aligning with the existing pattern in the codebase.
+
+This plan provides a clear path for a developer to implement the feature while adhering to the current architecture and conventions in the codebase. Let me know if you'd like to adjust any part of the plan!
+</file>
+
 <file path="history.md">
 #### Implementation Plan
 
@@ -7085,6 +7213,133 @@ const config = {
 };
 
 export default config;
+</file>
+
+<file path="settings.md">
+#### Feature Overview
+We will add a settings subsection to the existing profile page (`/profile`) that allows users to manage their app settings. The settings will include:
+- **Mode** (Dark/System/Light)
+- **Default Action** (Open reader/Concise summary/Detailed summary)
+- **Search Language** (for searching new knowledge cards)
+- **Data Export** (export summaries as markdown)
+- **Subscription** (renamed to "Upgrade to Plus")
+- **Account** (Delete Account with confirmation dialog)
+- **Feature Request**, **Report a Bug**, and **FAQ** (modals/forms within the app)
+
+Settings will be stored in Supabase, and the UI will follow the app’s existing theme with mobile responsiveness. The "Translate Summaries" and "Recall Review Email" settings will be excluded. Deleting an account will remove all user data and summaries after confirmation.
+
+#### Implementation Plan
+
+1. **Create a `user_settings` Table in Supabase**  
+   - Define a new table in Supabase to store user settings, including fields for `mode`, `default_action`, and `search_language`.  
+   - Each user will have a single row in this table, linked to their `user_id`.  
+   - **Files Impacted**: None (this is a database change).  
+   - **Configuration/Database Migrations**:  
+     - Create a `user_settings` table with the following schema:  
+       - `id` (uuid, primary key)  
+       - `user_id` (uuid, foreign key to `users.id`)  
+       - `mode` (text, values: 'dark', 'system', 'light', default: 'system')  
+       - `default_action` (text, values: 'open_reader', 'concise_summary', 'detailed_summary', default: 'concise_summary')  
+       - `search_language` (text, default: 'English')  
+       - `created_at` (timestamp)  
+       - `updated_at` (timestamp)  
+     - Add Row Level Security (RLS) policies to ensure users can only access their own settings.  
+     - Create a trigger to initialize a `user_settings` row when a new user is created (similar to existing user creation logic in `lib/auth.ts`).
+
+2. **Update Supabase Client to Handle User Settings**  
+   - Add functions to `lib/supabase.ts` to fetch and update user settings.  
+   - Include a function to initialize settings for a new user if they don’t exist.  
+   - **Files Impacted**:  
+     - `lib/supabase.ts`  
+       - Add `fetchUserSettings(userId: string)` to retrieve settings.  
+       - Add `updateUserSettings(userId: string, updates: Partial<UserSettings>)` to update settings.  
+       - Add `initializeUserSettings(userId: string)` to create default settings for a user.  
+   - **Configuration/Database Migrations**: None (already handled in Step 1).
+
+3. **Modify Auth Provider to Include User Settings**  
+   - Update the `AuthProvider` to fetch and store user settings alongside user data.  
+   - Extend the `User` type to include settings, and update the context to provide settings and a method to update them.  
+   - Call `initializeUserSettings` when a new user is created.  
+   - **Files Impacted**:  
+     - `components/auth-provider.tsx`  
+       - Update `User` type to include `settings: { mode: string, default_action: string, search_language: string }`.  
+       - Modify `AuthProvider` to fetch settings using `fetchUserSettings` during initialization and after sign-in.  
+       - Add `updateUserSettings` method to the context to allow components to update settings.  
+       - Call `initializeUserSettings` in `createUser` flow.  
+     - `lib/auth.ts`  
+       - Update `createUser` to call `initializeUserSettings` after user creation.
+
+4. **Create a Settings Component**  
+   - Create a new `Settings` component to render the settings UI, including Mode, Default Action, Search Language, Data Export, Subscription, Account, and modals for Feature Request, Report a Bug, and FAQ.  
+   - Use existing UI components (e.g., `Select`, `Button`, `AlertDialog`) to match the app’s theme.  
+   - Ensure mobile responsiveness using Tailwind CSS classes.  
+   - **Files Impacted**:  
+     - `components/settings.tsx` (new file)  
+       - Create a `Settings` component that:  
+         - Renders a dropdown for Mode using `Select` (options: Dark, System, Light).  
+         - Renders a dropdown for Default Action (options: Open reader, Concise summary, Detailed summary).  
+         - Renders a dropdown for Search Language (starting with English; can be extended later).  
+         - Renders an "Export" button to download summaries as markdown.  
+         - Renders an "Upgrade to Plus" button (link to `/upgrade`).  
+         - Renders a "Delete Account" button with a confirmation dialog using `AlertDialog`.  
+         - Renders buttons for Feature Request, Report a Bug, and FAQ, each opening a modal (`Dialog`) with a form.  
+       - Use `useAuth` to access and update settings.  
+       - Implement mobile responsiveness with Tailwind classes (e.g., `w-full`, `sm:w-auto`, `flex-col sm:flex-row`).
+
+5. **Integrate Settings Component into Profile Page**  
+   - Update the profile page to include the `Settings` component as a subsection.  
+   - Add a heading or separator to distinguish the settings section.  
+   - **Files Impacted**:  
+     - `app/profile/page.tsx`  
+       - Import and render the `Settings` component below the existing profile content.  
+       - Add a heading like "Settings" using Tailwind styling (e.g., `text-2xl font-bold mb-6`).  
+       - Wrap the settings section in a `div` with responsive styling (e.g., `max-w-3xl mx-auto`).
+
+6. **Implement Data Export Functionality**  
+   - Add a server action to export user summaries as a markdown file.  
+   - Fetch summaries from the `summaries` table and format them as markdown.  
+   - **Files Impacted**:  
+     - `actions/export-summaries.ts` (new file)  
+       - Create an `exportSummaries` server action that:  
+         - Takes `userId` as input.  
+         - Fetches summaries using `fetchUserSummaries` from `lib/supabase.ts`.  
+         - Formats summaries into markdown (e.g., `# Video Title\n\n**Summary:** Overall summary\n\n**Sections:**\n- Section 1...`).  
+         - Returns the markdown content as a downloadable file.  
+     - `components/settings.tsx`  
+       - Update the "Export" button to call the `exportSummaries` action and trigger a download.
+
+7. **Implement Account Deletion with Confirmation**  
+   - Add a server action to delete the user’s account, including their data and summaries.  
+   - Update the `Settings` component to handle the deletion flow with a confirmation dialog.  
+   - **Files Impacted**:  
+     - `actions/delete-account.ts` (new file)  
+       - Create a `deleteAccount` server action that:  
+         - Takes `userId` as input.  
+         - Deletes all summaries for the user from the `summaries` table using `supabaseAdmin`.  
+         - Deletes the user’s settings from the `user_settings` table.  
+         - Deletes the user from the `users` table.  
+         - Deletes the user from Supabase Auth using `supabaseAdmin.auth.admin.deleteUser`.  
+         - Signs the user out using `supabase.auth.signOut`.  
+     - `components/settings.tsx`  
+       - Add an `AlertDialog` for the "Delete Account" button to confirm deletion.  
+       - Call the `deleteAccount` action on confirmation and redirect to `/login`.
+
+8. **Implement Modals for Feature Request, Report a Bug, and FAQ**  
+   - Add modal forms in the `Settings` component for Feature Request, Report a Bug, and FAQ.  
+   - For simplicity, these forms can log submissions to the console (future iterations can integrate with a backend service).  
+   - **Files Impacted**:  
+     - `components/settings.tsx`  
+       - Add `Dialog` components for each of the three options.  
+       - Include a simple form in each modal (e.g., textarea for Feature Request/Report a Bug, static content for FAQ).  
+       - Log form submissions to the console for now.
+
+#### Additional Notes
+- **Mobile Responsiveness**: The `Settings` component will use Tailwind’s responsive classes to ensure a mobile-friendly layout (e.g., stack elements vertically on mobile, use full-width buttons).  
+- **UI Theme**: The component will follow the app’s existing theme by using Radix UI components (`Select`, `Button`, `Dialog`) and Tailwind styles consistent with `app/globals.css`.  
+- **Settings Impact**:  
+  - **Mode**: Will toggle the app’s theme using `next-themes` (already integrated via `ThemeProvider` in `app/layout.tsx`).  
+  - **Default Action**: Will determine the default view for summaries (future implementation can use this setting in `app/(dashboard)/history/page.tsx`).  
+  - **Search Language**: Will set the language for searches (future implementation can use this in search functionality).
 </file>
 
 <file path="supabase.md">
@@ -7351,6 +7606,243 @@ export default config;
 }
 </file>
 
+<file path="app/(dashboard)/history/page.tsx">
+"use client";
+
+import { useState, useEffect } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { fetchUserSummaries } from "@/lib/supabase";
+import { SummaryTile } from "@/components/ui/summary-tile";
+import { CustomPagination } from "@/components/custom-pagination";
+import { deleteSummary } from "@/actions/delete-summary";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
+
+export default function HistoryPage() {
+  const { user } = useAuth();
+  const [summaries, setSummaries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
+  const limit = 12; // Number of summaries per page
+  
+  // Delete confirmation state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [summaryToDelete, setSummaryToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    console.log("History page useEffect triggered", { 
+      userExists: !!user,
+      userId: user?.id,
+      currentPage
+    });
+    
+    if (user?.id) {
+      loadSummaries(user.id, currentPage);
+    }
+  }, [user, currentPage]);
+
+  const loadSummaries = async (userId: string, page: number) => {
+    console.log("Loading summaries...", { userId, page, limit });
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log("Fetching summaries from Supabase...");
+      const { summaries, error, count } = await fetchUserSummaries(userId, page, limit);
+      
+      console.log("Fetch result:", { 
+        success: !error, 
+        errorMessage: error?.message, 
+        summariesCount: summaries?.length || 0,
+        totalCount: count
+      });
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      console.log("Summaries data:", summaries);
+      setSummaries(summaries || []);
+      
+      // Calculate total pages
+      const total = Math.ceil((count || 0) / limit);
+      console.log("Pagination info:", { total, currentPage });
+      setTotalPages(total || 1);
+    } catch (err: any) {
+      console.error("Error fetching summaries:", err);
+      setError(err.message || "Failed to load summaries");
+      setSummaries([]);
+    } finally {
+      console.log("Finished loading summaries");
+      setLoading(false);
+    }
+  };
+
+  const handlePageChange = (page: number) => {
+    console.log("Page changed to:", page);
+    setCurrentPage(page);
+  };
+  
+  const handleDeleteClick = (id: string, title: string) => {
+    console.log("Delete clicked for summary:", { id, title });
+    setSummaryToDelete({ id, title });
+    setIsDeleteDialogOpen(true);
+  };
+  
+  const handleDeleteConfirm = async () => {
+    if (!summaryToDelete || !user) return;
+    
+    console.log("Confirming deletion of summary:", summaryToDelete.id);
+    setIsDeleting(true);
+    setDeleteError(null);
+    
+    try {
+      const result = await deleteSummary(summaryToDelete.id, user.id);
+      
+      if (result.success) {
+        console.log("Summary deleted successfully");
+        // Remove the deleted summary from the state
+        setSummaries(summaries.filter(summary => summary.id !== summaryToDelete.id));
+        
+        // If we deleted the last item on the page and it's not the first page, go to previous page
+        if (summaries.length === 1 && currentPage > 1) {
+          setCurrentPage(prev => prev - 1);
+        }
+      } else {
+        console.error("Error deleting summary:", result.error);
+        setDeleteError(result.error || "Failed to delete summary");
+      }
+    } catch (err: any) {
+      console.error("Unexpected error in deletion:", err);
+      setDeleteError(err.message || "An unexpected error occurred");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
+      setSummaryToDelete(null);
+    }
+  };
+  
+  const handleDeleteCancel = () => {
+    setIsDeleteDialogOpen(false);
+    setSummaryToDelete(null);
+  };
+
+  console.log("Rendering history page", { 
+    user: !!user, 
+    loading, 
+    error, 
+    summariesCount: summaries.length,
+    currentPage,
+    totalPages
+  });
+
+  if (!user) {
+    return <div className="text-center py-12">Please log in to view your history.</div>;
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Your Summary History</h1>
+      
+      {deleteError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{deleteError}</AlertDescription>
+        </Alert>
+      )}
+      
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      ) : summaries.length === 0 ? (
+        <div className="bg-white p-8 rounded-lg shadow-sm text-center">
+          <h3 className="text-lg mb-2">No summaries yet</h3>
+          <p className="text-gray-500">
+            You haven't created any summaries yet. Go to the dashboard to summarize a YouTube video.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {summaries.map((summary) => (
+              <SummaryTile
+                key={summary.id}
+                id={summary.id}
+                videoId={summary.video_id}
+                videoTitle={summary.video_title}
+                summaryData={summary.summary_data}
+                createdAt={summary.created_at}
+                onDelete={handleDeleteClick}
+              />
+            ))}
+          </div>
+          
+          {totalPages > 1 && (
+            <div className="mt-8 flex justify-center">
+              <CustomPagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
+        </>
+      )}
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the summary for '{summaryToDelete?.title}'?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDeleteCancel} disabled={isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-red-500 hover:bg-red-600 focus:ring-red-500"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+</file>
+
 <file path="app/login/page.tsx">
 "use client";
 
@@ -7454,181 +7946,6 @@ export default function LoginPage() {
         </CardFooter>
       </Card>
     </div>
-  );
-}
-</file>
-
-<file path="app/profile/page.tsx">
-"use client";
-
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertCircle, User, CreditCard, ArrowLeft } from "lucide-react";
-import Link from "next/link";
-
-export default function ProfilePage() {
-  const { user, updateUserProfile, isLoading } = useAuth();
-  const [displayName, setDisplayName] = useState("");
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const router = useRouter();
-
-  // Redirect if not authenticated
-  useEffect(() => {
-    if (!isLoading && !user) {
-      router.push("/login");
-    } else if (user) {
-      setDisplayName(user.displayName || user.name || "");
-    }
-  }, [user, isLoading, router]);
-
-  const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsUpdating(true);
-    
-    try {
-      await updateUserProfile({ displayName });
-      setMessage({ type: "success", text: "Profile updated successfully!" });
-      
-      // Clear message after 3 seconds
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error: any) {
-      setMessage({ type: "error", text: error?.message || "Failed to update profile" });
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null; // Will redirect in the useEffect
-  }
-
-  return (
-    <main className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center mb-8">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="mr-4"
-            asChild
-          >
-            <Link href="/dashboard">
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-          </Button>
-          <h1 className="text-2xl font-bold">Your Profile</h1>
-        </div>
-        
-        <div className="mb-8">
-          <Tabs defaultValue="account">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="account">
-                <User className="h-4 w-4 mr-2" />
-                Account
-              </TabsTrigger>
-              <TabsTrigger value="credits">
-                <CreditCard className="h-4 w-4 mr-2" />
-                Credits
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="account" className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Account Information</CardTitle>
-                  <CardDescription>
-                    Update your account settings and profile information.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {message && (
-                    <Alert variant={message.type === "success" ? "default" : "destructive"}>
-                      <AlertDescription>{message.text}</AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <div className="mb-2 text-sm font-medium text-gray-500">Email</div>
-                    <div className="text-base font-medium">{user.email}</div>
-                  </div>
-                  
-                  <form onSubmit={handleUpdateProfile} className="space-y-4">
-                    <div className="space-y-2">
-                      <label htmlFor="displayName" className="text-sm font-medium">
-                        Display Name
-                      </label>
-                      <Input
-                        id="displayName"
-                        value={displayName}
-                        onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="How you want to be addressed"
-                      />
-                    </div>
-                    
-                    <Button type="submit" disabled={isUpdating}>
-                      {isUpdating ? "Updating..." : "Update Profile"}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            <TabsContent value="credits" className="mt-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your Credits</CardTitle>
-                  <CardDescription>
-                    View and manage your credits for summarizing videos.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 text-center">
-                    <h3 className="text-3xl font-bold text-blue-700 mb-2">{user.credits}</h3>
-                    <p className="text-blue-600">Available Credits</p>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-medium">Credit Usage</h4>
-                    <div className="bg-white border rounded-md p-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm">Each video summary</span>
-                        <span className="text-sm font-medium">1 credit</span>
-                      </div>
-                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full" 
-                          style={{ width: `${Math.min(100, (user.credits / 10) * 100)}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/#pricing">Get More Credits</Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </div>
-    </main>
   );
 }
 </file>
@@ -8135,6 +8452,99 @@ export default function Home() {
 }
 </file>
 
+<file path="components/ui/summary-tile.tsx">
+import React, { useState } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { formatDistanceToNow } from 'date-fns';
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
+import { StructuredSummary } from '@/lib/openai-utils';
+import { FileVideo, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+interface SummaryTileProps {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  summaryData: StructuredSummary;
+  createdAt: string;
+  onDelete?: (id: string, title: string) => void;
+}
+
+export function SummaryTile({ 
+  id, 
+  videoId, 
+  videoTitle, 
+  summaryData, 
+  createdAt,
+  onDelete 
+}: SummaryTileProps) {
+  const [imgError, setImgError] = useState(false);
+  
+  // Format date as "3 days ago" or similar
+  const formattedDate = formatDistanceToNow(new Date(createdAt), { addSuffix: true });
+  
+  // Truncate summary to 120 characters
+  const truncatedSummary = summaryData.overallSummary.length > 120 
+    ? `${summaryData.overallSummary.substring(0, 120)}...` 
+    : summaryData.overallSummary;
+  
+  // YouTube thumbnail URL
+  const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+  
+  const handleDelete = (e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent navigation
+    if (onDelete) {
+      onDelete(id, videoTitle);
+    }
+  };
+  
+  return (
+    <Link href={`/summary/${id}`} className="block relative group">
+      <Card className="h-full overflow-hidden hover:shadow-md transition-shadow duration-200">
+        {onDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white/90"
+            onClick={handleDelete}
+            title="Delete summary"
+          >
+            <Trash2 className="h-4 w-4 text-red-500" />
+          </Button>
+        )}
+        <div className="aspect-video relative bg-gray-100">
+          {imgError ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <FileVideo className="h-12 w-12 text-gray-400" />
+            </div>
+          ) : (
+            <Image 
+              src={thumbnailUrl} 
+              alt={videoTitle}
+              fill
+              className="object-cover"
+              onError={() => setImgError(true)}
+            />
+          )}
+        </div>
+        <CardHeader className="p-4 pb-2">
+          <h3 className="font-semibold text-lg line-clamp-1">{videoTitle}</h3>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <p className="text-sm text-muted-foreground line-clamp-3">{truncatedSummary}</p>
+        </CardContent>
+        <CardFooter className="p-4 pt-0 text-xs text-muted-foreground">
+          {formattedDate}
+        </CardFooter>
+      </Card>
+    </Link>
+  );
+}
+
+export default SummaryTile;
+</file>
+
 <file path="components/video-summarizer-form.tsx">
 "use client"
 
@@ -8384,82 +8794,6 @@ export function VideoSummarizerForm() {
 }
 </file>
 
-<file path="lib/supabase.ts">
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
-
-// Check for environment variables
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables. Check your .env.local file.');
-}
-
-// Client for browser usage (with anon key)
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Admin client for server-side operations (with service role key)
-// Only use this on the server-side, never expose this client to the browser
-export const supabaseAdmin = supabaseServiceKey 
-  ? createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
-      }
-    })
-  : supabase; // Fallback to regular client if service key not available
-
-// Fetch summaries for a user with pagination
-export async function fetchUserSummaries(userId: string, page = 1, limit = 12) {
-  console.log(`[fetchUserSummaries] Starting with params:`, { userId, page, limit });
-  
-  const offset = (page - 1) * limit;
-  console.log(`[fetchUserSummaries] Calculated offset:`, { offset });
-  
-  try {
-    // Get summaries
-    const response = await supabase
-      .from('summaries')
-      .select('*', { count: 'exact' })
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-    
-    console.log(`[fetchUserSummaries] Supabase response:`, {
-      success: !response.error,
-      errorDetails: response.error,
-      dataCount: response.data?.length || 0, 
-      totalCount: response.count
-    });
-    
-    return { 
-      summaries: response.data, 
-      error: response.error, 
-      count: response.count, 
-      page, 
-      limit 
-    };
-  } catch (err) {
-    console.error(`[fetchUserSummaries] Unexpected error:`, err);
-    return { summaries: null, error: err as any, count: 0, page, limit };
-  }
-}
-
-// Fetch a single summary by ID
-export async function fetchSummaryById(summaryId: string) {
-  const { data: summary, error } = await supabase
-    .from('summaries')
-    .select('*')
-    .eq('id', summaryId)
-    .maybeSingle();
-    
-  return { summary, error };
-}
-
-export default supabase;
-</file>
-
 <file path="package.json">
 {
   "name": "my-v0-project",
@@ -8543,211 +8877,187 @@ export default supabase;
 }
 </file>
 
-<file path="components/auth-provider.tsx">
+<file path="app/profile/page.tsx">
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
-import { User, authenticateUser, createUser } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertCircle, User, CreditCard, ArrowLeft, Settings as SettingsIcon } from "lucide-react";
+import { Settings } from "@/components/settings";
+import Link from "next/link";
 
-type AuthContextType = {
-  user: User | null;
-  login: (email: string, password: string) => Promise<User | null>;
-  signup: (email: string, password: string, name?: string, displayName?: string) => Promise<User | null>;
-  logout: () => Promise<void>;
-  isLoading: boolean;
-  updateUserProfile: (updates: Partial<User>) => Promise<void>;
-  updateUser: (user: User) => void;
-};
+export default function ProfilePage() {
+  const { user, updateUserProfile, isLoading } = useAuth();
+  const [displayName, setDisplayName] = useState("");
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const router = useRouter();
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Check for Supabase session on mount and setup auth listener
+  // Redirect if not authenticated
   useEffect(() => {
-    // Get current session and user
-    const initializeAuth = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Check for existing session
-        const { data: sessionData } = await supabase.auth.getSession();
-        
-        if (sessionData.session) {
-          console.log("Auth session found, fetching user data");
-          
-          // User is logged in, get profile data
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', sessionData.session.user.id)
-            .maybeSingle(); // Use maybeSingle instead of single
-            
-          if (userError) {
-            console.error('Error fetching user data during initialization:', userError.message);
-          } else if (!userData) {
-            console.log("No user data found for authenticated user. This may occur if the user record hasn't been created yet.");
-          } else {
-            console.log("User data loaded successfully");
-            setUser({
-              id: sessionData.session.user.id,
-              email: sessionData.session.user.email!,
-              displayName: userData.display_name,
-              credits: userData.credits,
-            });
-          }
-        } else {
-          console.log("No active auth session found");
-        }
-      } catch (error) {
-        console.error('Error initializing auth:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    // Initialize auth
-    initializeAuth();
-
-    // Subscribe to auth changes
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log(`Auth state changed: ${event}`);
-        
-        if (event === 'SIGNED_IN' && session) {
-          console.log("User signed in, updating user data");
-          // Get user profile data
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle(); // Use maybeSingle instead of single
-            
-          if (userError) {
-            console.error('Error fetching user data on auth change:', userError.message);
-          } else if (!userData) {
-            console.log("No user data found after sign in. User record may not exist yet.");
-          } else {
-            setUser({
-              id: session.user.id,
-              email: session.user.email!,
-              displayName: userData.display_name,
-              credits: userData.credits,
-            });
-          }
-        } else if (event === 'SIGNED_OUT') {
-          console.log("User signed out, clearing user data");
-          setUser(null);
-        } else if (event === 'USER_UPDATED') {
-          console.log("User data updated");
-        }
-      }
-    );
-
-    // Cleanup subscription
-    return () => {
-      console.log("Cleaning up auth listener");
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  // Log when user state changes
-  useEffect(() => {
-    console.log("User state updated:", user ? `User ${user.email}` : "No user");
-  }, [user]);
-
-  const login = async (email: string, password: string) => {
-    console.log(`Attempting login for ${email}`);
-    return authenticateUser(email, password);
-  };
-
-  const signup = async (email: string, password: string, name?: string, displayName?: string) => {
-    console.log(`Attempting signup for ${email}`);
-    return createUser(email, password, name, displayName);
-  };
-
-  const logout = async () => {
-    console.log("Logging out user");
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Error signing out:', error.message);
-    } else {
-      setUser(null);
+    if (!isLoading && !user) {
+      router.push("/login");
+    } else if (user) {
+      setDisplayName(user.displayName || user.name || "");
     }
-  };
+  }, [user, isLoading, router]);
 
-  const updateUserProfile = async (updates: Partial<User>) => {
-    if (!user) {
-      console.error("Cannot update profile: No user is logged in");
-      return;
-    }
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdating(true);
     
     try {
-      console.log(`Updating user profile for ${user.email}`, updates);
+      await updateUserProfile({ displayName });
+      setMessage({ type: "success", text: "Profile updated successfully!" });
       
-      // Update display_name if it's being changed
-      if (updates.displayName !== undefined) {
-        const { error } = await supabase
-          .from('users')
-          .update({ 
-            display_name: updates.displayName,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', user.id);
-          
-        if (error) {
-          console.error('Error updating user profile:', error.message);
-          return;
-        }
-      }
-      
-      // Create updated user object
-      const updatedUser = { ...user, ...updates };
-      
-      // Update state
-      setUser(updatedUser);
-      console.log("User profile updated successfully");
-    } catch (error) {
-      console.error('Unexpected error updating user profile:', error);
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      setMessage({ type: "error", text: error?.message || "Failed to update profile" });
+    } finally {
+      setIsUpdating(false);
     }
   };
 
-  // Function to update the entire user object
-  const updateUser = (updatedUser: User) => {
-    console.log("Updating user state with new data", { 
-      id: updatedUser.id,
-      email: updatedUser.email,
-      credits: updatedUser.credits
-    });
-    setUser(updatedUser);
-  };
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect in the useEffect
+  }
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        login,
-        signup,
-        logout,
-        isLoading,
-        updateUserProfile,
-        updateUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+    <main className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center mb-8">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="mr-4"
+            asChild
+          >
+            <Link href="/dashboard">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Your Profile</h1>
+        </div>
+        
+        <div className="mb-8">
+          <Tabs defaultValue="account">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="account">
+                <User className="h-4 w-4 mr-2" />
+                Account
+              </TabsTrigger>
+              <TabsTrigger value="credits">
+                <CreditCard className="h-4 w-4 mr-2" />
+                Credits
+              </TabsTrigger>
+              <TabsTrigger value="settings">
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Settings
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="account" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Account Information</CardTitle>
+                  <CardDescription>
+                    Update your account settings and profile information.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {message && (
+                    <Alert variant={message.type === "success" ? "default" : "destructive"}>
+                      <AlertDescription>{message.text}</AlertDescription>
+                    </Alert>
+                  )}
+                  
+                  <div className="border rounded-lg p-4 bg-gray-50">
+                    <div className="mb-2 text-sm font-medium text-gray-500">Email</div>
+                    <div className="text-base font-medium">{user.email}</div>
+                  </div>
+                  
+                  <form onSubmit={handleUpdateProfile} className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="displayName" className="text-sm font-medium">
+                        Display Name
+                      </label>
+                      <Input
+                        id="displayName"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="How you want to be addressed"
+                      />
+                    </div>
+                    
+                    <Button type="submit" disabled={isUpdating}>
+                      {isUpdating ? "Updating..." : "Update Profile"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="credits" className="mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Your Credits</CardTitle>
+                  <CardDescription>
+                    View and manage your credits for summarizing videos.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="bg-blue-50 border border-blue-100 rounded-lg p-6 text-center">
+                    <h3 className="text-3xl font-bold text-blue-700 mb-2">{user.credits}</h3>
+                    <p className="text-blue-600">Available Credits</p>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-medium">Credit Usage</h4>
+                    <div className="bg-white border rounded-md p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm">Each video summary</span>
+                        <span className="text-sm font-medium">1 credit</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500 rounded-full" 
+                          style={{ width: `${Math.min(100, (user.credits / 10) * 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href="/#pricing">Get More Credits</Link>
+                  </Button>
+                </CardFooter>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="settings" className="mt-6">
+              <Settings />
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+    </main>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
 }
 </file>
 
@@ -8996,6 +9306,195 @@ export async function createUser(
 }
 </file>
 
+<file path="lib/supabase.ts">
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
+
+// Check for environment variables
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase environment variables. Check your .env.local file.');
+}
+
+// Client for browser usage (with anon key)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Admin client for server-side operations (with service role key)
+// Only use this on the server-side, never expose this client to the browser
+export const supabaseAdmin = supabaseServiceKey 
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+  : supabase; // Fallback to regular client if service key not available
+
+// User settings type
+export type UserSettings = {
+  id: string;
+  user_id: string;
+  mode: 'dark' | 'system' | 'light';
+  default_action: 'open_reader' | 'concise_summary' | 'detailed_summary';
+  search_language: string;
+  created_at: string;
+  updated_at: string;
+};
+
+// Fetch user settings
+export async function fetchUserSettings(userId: string): Promise<{ settings: UserSettings | null, error: any }> {
+  console.log(`[fetchUserSettings] Fetching settings for user:`, { userId });
+  
+  try {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`[fetchUserSettings] Error fetching settings:`, error);
+      return { settings: null, error };
+    }
+    
+    if (!data) {
+      console.log(`[fetchUserSettings] No settings found, initializing defaults`);
+      return await initializeUserSettings(userId);
+    }
+    
+    console.log(`[fetchUserSettings] Settings retrieved successfully`);
+    return { settings: data as UserSettings, error: null };
+  } catch (err) {
+    console.error(`[fetchUserSettings] Unexpected error:`, err);
+    return { settings: null, error: err as any };
+  }
+}
+
+// Update user settings
+export async function updateUserSettings(userId: string, updates: Partial<UserSettings>): Promise<{ settings: UserSettings | null, error: any }> {
+  console.log(`[updateUserSettings] Updating settings for user:`, { userId });
+  
+  try {
+    const { data, error } = await supabase
+      .from('user_settings')
+      .update({ 
+        ...updates, 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('user_id', userId)
+      .select('*')
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`[updateUserSettings] Error updating settings:`, error);
+      return { settings: null, error };
+    }
+    
+    console.log(`[updateUserSettings] Settings updated successfully`);
+    return { settings: data as UserSettings, error: null };
+  } catch (err) {
+    console.error(`[updateUserSettings] Unexpected error:`, err);
+    return { settings: null, error: err as any };
+  }
+}
+
+// Initialize user settings
+export async function initializeUserSettings(userId: string): Promise<{ settings: UserSettings | null, error: any }> {
+  console.log(`[initializeUserSettings] Initializing settings for user:`, { userId });
+  
+  try {
+    // Default settings
+    const defaultSettings = {
+      user_id: userId,
+      mode: 'system',
+      default_action: 'concise_summary',
+      search_language: 'English'
+    };
+    
+    // Check if settings already exist
+    const { data: existingSettings } = await supabase
+      .from('user_settings')
+      .select('id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    
+    if (existingSettings) {
+      console.log(`[initializeUserSettings] Settings already exist, skipping initialization`);
+      return await fetchUserSettings(userId);
+    }
+    
+    // Create new settings
+    const { data, error } = await supabase
+      .from('user_settings')
+      .insert([defaultSettings])
+      .select('*')
+      .maybeSingle();
+    
+    if (error) {
+      console.error(`[initializeUserSettings] Error initializing settings:`, error);
+      return { settings: null, error };
+    }
+    
+    console.log(`[initializeUserSettings] Settings initialized successfully`);
+    return { settings: data as UserSettings, error: null };
+  } catch (err) {
+    console.error(`[initializeUserSettings] Unexpected error:`, err);
+    return { settings: null, error: err as any };
+  }
+}
+
+// Fetch summaries for a user with pagination
+export async function fetchUserSummaries(userId: string, page = 1, limit = 12) {
+  console.log(`[fetchUserSummaries] Starting with params:`, { userId, page, limit });
+  
+  const offset = (page - 1) * limit;
+  console.log(`[fetchUserSummaries] Calculated offset:`, { offset });
+  
+  try {
+    // Get summaries
+    const response = await supabase
+      .from('summaries')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+    
+    console.log(`[fetchUserSummaries] Supabase response:`, {
+      success: !response.error,
+      errorDetails: response.error,
+      dataCount: response.data?.length || 0, 
+      totalCount: response.count
+    });
+    
+    return { 
+      summaries: response.data, 
+      error: response.error, 
+      count: response.count, 
+      page, 
+      limit 
+    };
+  } catch (err) {
+    console.error(`[fetchUserSummaries] Unexpected error:`, err);
+    return { summaries: null, error: err as any, count: 0, page, limit };
+  }
+}
+
+// Fetch a single summary by ID
+export async function fetchSummaryById(summaryId: string) {
+  const { data: summary, error } = await supabase
+    .from('summaries')
+    .select('*')
+    .eq('id', summaryId)
+    .maybeSingle();
+    
+  return { summary, error };
+}
+
+export default supabase;
+</file>
+
 <file path="next.config.mjs">
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -9026,6 +9525,309 @@ const nextConfig = {
 }
 
 export default nextConfig
+</file>
+
+<file path="components/auth-provider.tsx">
+"use client";
+
+import { createContext, useContext, useState, useEffect } from "react";
+import { User, authenticateUser, createUser } from "@/lib/auth";
+import { supabase, UserSettings, fetchUserSettings, updateUserSettings } from "@/lib/supabase";
+
+// Extend User type to include settings
+type UserWithSettings = User & {
+  settings?: UserSettings | null;
+};
+
+type AuthContextType = {
+  user: UserWithSettings | null;
+  login: (email: string, password: string) => Promise<User | null>;
+  signup: (email: string, password: string, name?: string, displayName?: string) => Promise<User | null>;
+  logout: () => Promise<void>;
+  isLoading: boolean;
+  updateUserProfile: (updates: Partial<User>) => Promise<void>;
+  updateUser: (user: User) => void;
+  updateSettings: (updates: Partial<UserSettings>) => Promise<void>;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<UserWithSettings | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Helper function to load user settings
+  const loadUserSettings = async (userId: string) => {
+    try {
+      console.log("Loading user settings for:", userId);
+      const { settings, error } = await fetchUserSettings(userId);
+      
+      if (error) {
+        console.error("Error loading user settings:", error);
+        return null;
+      }
+      
+      console.log("User settings loaded:", settings);
+      return settings;
+    } catch (err) {
+      console.error("Unexpected error loading user settings:", err);
+      return null;
+    }
+  };
+
+  // Check for Supabase session on mount and setup auth listener
+  useEffect(() => {
+    // Get current session and user
+    const initializeAuth = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Check for existing session
+        const { data: sessionData } = await supabase.auth.getSession();
+        
+        if (sessionData.session) {
+          console.log("Auth session found, fetching user data");
+          
+          // User is logged in, get profile data
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', sessionData.session.user.id)
+            .maybeSingle(); // Use maybeSingle instead of single
+            
+          if (userError) {
+            console.error('Error fetching user data during initialization:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found for authenticated user. This may occur if the user record hasn't been created yet.");
+          } else {
+            console.log("User data loaded successfully");
+            
+            // Load user settings
+            const settings = await loadUserSettings(sessionData.session.user.id);
+            
+            setUser({
+              id: sessionData.session.user.id,
+              email: sessionData.session.user.email!,
+              displayName: userData.display_name,
+              credits: userData.credits,
+              settings
+            });
+          }
+        } else {
+          console.log("No active auth session found");
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Initialize auth
+    initializeAuth();
+
+    // Subscribe to auth changes
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log(`Auth state changed: ${event}`);
+        
+        if (event === 'SIGNED_IN' && session) {
+          console.log("User signed in, updating user data");
+          // Get user profile data
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle(); // Use maybeSingle instead of single
+            
+          if (userError) {
+            console.error('Error fetching user data on auth change:', userError.message);
+          } else if (!userData) {
+            console.log("No user data found after sign in. User record may not exist yet.");
+          } else {
+            // Load user settings
+            const settings = await loadUserSettings(session.user.id);
+            
+            setUser({
+              id: session.user.id,
+              email: session.user.email!,
+              displayName: userData.display_name,
+              credits: userData.credits,
+              settings
+            });
+          }
+        } else if (event === 'SIGNED_OUT') {
+          console.log("User signed out, clearing user data");
+          setUser(null);
+        } else if (event === 'USER_UPDATED') {
+          console.log("User data updated");
+        }
+      }
+    );
+
+    // Cleanup subscription
+    return () => {
+      console.log("Cleaning up auth listener");
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Log when user state changes
+  useEffect(() => {
+    console.log("User state updated:", user ? `User ${user.email}` : "No user");
+  }, [user]);
+
+  const login = async (email: string, password: string) => {
+    console.log(`Attempting login for ${email}`);
+    const userData = await authenticateUser(email, password);
+    
+    if (userData) {
+      // Load user settings after successful login
+      const settings = await loadUserSettings(userData.id);
+      
+      // Update user state with settings
+      setUser({
+        ...userData,
+        settings
+      });
+    }
+    
+    return userData;
+  };
+
+  const signup = async (email: string, password: string, name?: string, displayName?: string) => {
+    console.log(`Attempting signup for ${email}`);
+    const userData = await createUser(email, password, name, displayName);
+    
+    if (userData) {
+      // Load user settings after successful signup
+      const settings = await loadUserSettings(userData.id);
+      
+      // Update user state with settings
+      setUser({
+        ...userData,
+        settings
+      });
+    }
+    
+    return userData;
+  };
+
+  const logout = async () => {
+    console.log("Logging out user");
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out:', error.message);
+    } else {
+      setUser(null);
+    }
+  };
+
+  const updateUserProfile = async (updates: Partial<User>) => {
+    if (!user) {
+      console.error("Cannot update profile: No user is logged in");
+      return;
+    }
+    
+    try {
+      console.log(`Updating user profile for ${user.email}`, updates);
+      
+      // Update display_name if it's being changed
+      if (updates.displayName !== undefined) {
+        const { error } = await supabase
+          .from('users')
+          .update({ 
+            display_name: updates.displayName,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
+          
+        if (error) {
+          console.error('Error updating user profile:', error.message);
+          return;
+        }
+      }
+      
+      // Create updated user object
+      const updatedUser = { ...user, ...updates };
+      
+      // Update state
+      setUser(updatedUser);
+      console.log("User profile updated successfully");
+    } catch (error) {
+      console.error('Unexpected error updating user profile:', error);
+    }
+  };
+
+  // Function to update the entire user object
+  const updateUser = (updatedUser: User) => {
+    console.log("Updating user state with new data", { 
+      id: updatedUser.id,
+      email: updatedUser.email,
+      credits: updatedUser.credits
+    });
+    
+    // Preserve settings when updating user
+    setUser({
+      ...updatedUser,
+      settings: user?.settings
+    });
+  };
+  
+  // Function to update user settings
+  const updateSettings = async (updates: Partial<UserSettings>) => {
+    if (!user || !user.id) {
+      console.error("Cannot update settings: No user is logged in");
+      return;
+    }
+    
+    try {
+      console.log("Updating user settings:", updates);
+      
+      const { settings, error } = await updateUserSettings(user.id, updates);
+      
+      if (error) {
+        console.error("Error updating user settings:", error);
+        return;
+      }
+      
+      // Update user state with new settings
+      setUser({
+        ...user,
+        settings
+      });
+      
+      console.log("User settings updated successfully");
+    } catch (error) {
+      console.error("Unexpected error updating user settings:", error);
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        signup,
+        logout,
+        isLoading,
+        updateUserProfile,
+        updateUser,
+        updateSettings,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+}
 </file>
 
 <file path="actions/summarize-video.ts">
