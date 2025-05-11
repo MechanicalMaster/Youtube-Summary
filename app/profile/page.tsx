@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertCircle, User, CreditCard, ArrowLeft } from "lucide-react";
+import { AlertCircle, User, CreditCard, ArrowLeft, Settings as SettingsIcon } from "lucide-react";
+import { Settings } from "@/components/settings";
 import Link from "next/link";
 
 export default function ProfilePage() {
@@ -75,7 +76,7 @@ export default function ProfilePage() {
         
         <div className="mb-8">
           <Tabs defaultValue="account">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="account">
                 <User className="h-4 w-4 mr-2" />
                 Account
@@ -83,6 +84,10 @@ export default function ProfilePage() {
               <TabsTrigger value="credits">
                 <CreditCard className="h-4 w-4 mr-2" />
                 Credits
+              </TabsTrigger>
+              <TabsTrigger value="settings">
+                <SettingsIcon className="h-4 w-4 mr-2" />
+                Settings
               </TabsTrigger>
             </TabsList>
             
@@ -163,6 +168,10 @@ export default function ProfilePage() {
                   </Button>
                 </CardFooter>
               </Card>
+            </TabsContent>
+            
+            <TabsContent value="settings" className="mt-6">
+              <Settings />
             </TabsContent>
           </Tabs>
         </div>

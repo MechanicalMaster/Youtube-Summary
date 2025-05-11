@@ -5,6 +5,19 @@ import { useAuth } from "@/components/auth-provider";
 import { fetchUserSummaries } from "@/lib/supabase";
 import { SummaryTile } from "@/components/ui/summary-tile";
 import { CustomPagination } from "@/components/custom-pagination";
+import { deleteSummary } from "@/actions/delete-summary";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
 
 export default function HistoryPage() {
   const { user } = useAuth();
@@ -14,6 +27,12 @@ export default function HistoryPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const limit = 12; // Number of summaries per page
+  
+  // Delete confirmation state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [summaryToDelete, setSummaryToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     console.log("History page useEffect triggered", { 
@@ -68,6 +87,50 @@ export default function HistoryPage() {
     console.log("Page changed to:", page);
     setCurrentPage(page);
   };
+  
+  const handleDeleteClick = (id: string, title: string) => {
+    console.log("Delete clicked for summary:", { id, title });
+    setSummaryToDelete({ id, title });
+    setIsDeleteDialogOpen(true);
+  };
+  
+  const handleDeleteConfirm = async () => {
+    if (!summaryToDelete || !user) return;
+    
+    console.log("Confirming deletion of summary:", summaryToDelete.id);
+    setIsDeleting(true);
+    setDeleteError(null);
+    
+    try {
+      const result = await deleteSummary(summaryToDelete.id, user.id);
+      
+      if (result.success) {
+        console.log("Summary deleted successfully");
+        // Remove the deleted summary from the state
+        setSummaries(summaries.filter(summary => summary.id !== summaryToDelete.id));
+        
+        // If we deleted the last item on the page and it's not the first page, go to previous page
+        if (summaries.length === 1 && currentPage > 1) {
+          setCurrentPage(prev => prev - 1);
+        }
+      } else {
+        console.error("Error deleting summary:", result.error);
+        setDeleteError(result.error || "Failed to delete summary");
+      }
+    } catch (err: any) {
+      console.error("Unexpected error in deletion:", err);
+      setDeleteError(err.message || "An unexpected error occurred");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
+      setSummaryToDelete(null);
+    }
+  };
+  
+  const handleDeleteCancel = () => {
+    setIsDeleteDialogOpen(false);
+    setSummaryToDelete(null);
+  };
 
   console.log("Rendering history page", { 
     user: !!user, 
@@ -85,6 +148,12 @@ export default function HistoryPage() {
   return (
     <div className="max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Your Summary History</h1>
+      
+      {deleteError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{deleteError}</AlertDescription>
+        </Alert>
+      )}
       
       {loading ? (
         <div className="h-64 flex items-center justify-center">
@@ -112,6 +181,7 @@ export default function HistoryPage() {
                 videoTitle={summary.video_title}
                 summaryData={summary.summary_data}
                 createdAt={summary.created_at}
+                onDelete={handleDeleteClick}
               />
             ))}
           </div>
@@ -127,6 +197,38 @@ export default function HistoryPage() {
           )}
         </>
       )}
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the summary for '{summaryToDelete?.title}'?
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDeleteCancel} disabled={isDeleting}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-red-500 hover:bg-red-600 focus:ring-red-500"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 } 

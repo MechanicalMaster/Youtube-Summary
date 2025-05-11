@@ -4,7 +4,8 @@ import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { StructuredSummary } from '@/lib/openai-utils';
-import { FileVideo } from 'lucide-react';
+import { FileVideo, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface SummaryTileProps {
   id: string;
@@ -12,9 +13,17 @@ interface SummaryTileProps {
   videoTitle: string;
   summaryData: StructuredSummary;
   createdAt: string;
+  onDelete?: (id: string, title: string) => void;
 }
 
-export function SummaryTile({ id, videoId, videoTitle, summaryData, createdAt }: SummaryTileProps) {
+export function SummaryTile({ 
+  id, 
+  videoId, 
+  videoTitle, 
+  summaryData, 
+  createdAt,
+  onDelete 
+}: SummaryTileProps) {
   const [imgError, setImgError] = useState(false);
   
   // Format date as "3 days ago" or similar
@@ -28,9 +37,27 @@ export function SummaryTile({ id, videoId, videoTitle, summaryData, createdAt }:
   // YouTube thumbnail URL
   const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
   
+  const handleDelete = (e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent navigation
+    if (onDelete) {
+      onDelete(id, videoTitle);
+    }
+  };
+  
   return (
-    <Link href={`/summary/${id}`} className="block">
+    <Link href={`/summary/${id}`} className="block relative group">
       <Card className="h-full overflow-hidden hover:shadow-md transition-shadow duration-200">
+        {onDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 hover:bg-white/90"
+            onClick={handleDelete}
+            title="Delete summary"
+          >
+            <Trash2 className="h-4 w-4 text-red-500" />
+          </Button>
+        )}
         <div className="aspect-video relative bg-gray-100">
           {imgError ? (
             <div className="absolute inset-0 flex items-center justify-center">
